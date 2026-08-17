@@ -1,0 +1,138 @@
+/* Reset básico */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  display: flex;
+  min-height: 100vh;
+  background: #f0f2f5;
+}
+
+/* Sidebar / Caixa de ferramentas */
+.sidebar {
+  background: #1e293b;
+  color: #fff;
+  width: 220px;
+  min-width: 220px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar h2 {
+  font-size: 1.2rem;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.btn-sidebar {
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: #3b82f6;
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.2s;
+}
+
+.btn-sidebar:hover {
+  background: #2563eb;
+  transform: translateX(4px);
+}
+
+/* Área principal */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Barra de topo */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ffffff;
+  padding: 15px 30px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.topbar h1 {
+  font-size: 1.8rem;
+  color: #111;
+}
+
+.btn-config {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #3b82f6;
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.btn-config:hover {
+  background: #2563eb;
+}
+
+/* Área de conteúdo */
+.content-area {
+  flex: 1;
+  padding: 30px;
+  background: #e5e7eb;
+  overflow-y: auto;
+}
+
+/* Responsividade */
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 180px;
+  }
+
+  .topbar h1 {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  body {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    flex-direction: row;
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    padding: 10px;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .main-content {
+    width: 100%;
+  }
+
+  .topbar {
+    padding: 10px 15px;
+  }
+
+  .content-area {
+    padding: 20px;
+  }
+}

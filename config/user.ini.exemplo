@@ -1,0 +1,14 @@
+; ═══════════════════════════════════════════════════════════════════════════
+;  Copie para public_html/.user.ini e ajuste os caminhos.
+;
+;  Estas duas diretivas fazem o PHP carregar dois arquivos automaticamente
+;  antes e depois de TODA página. É o que liga a captura de erros e a proteção
+;  anti-CSRF sem precisar incluir código em cada arquivo — e, principalmente,
+;  garante que arquivo novo já nasça protegido.
+;
+;  O PHP guarda este arquivo em cache por até 5 minutos. Depois de salvar,
+;  aguarde antes de concluir que não funcionou.
+; ═══════════════════════════════════════════════════════════════════════════
+
+auto_prepend_file = /home/usuario/public_html/dev_captura.php
+auto_append_file  = /home/usuario/public_html/dev_captura_js.php

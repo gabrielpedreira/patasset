@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login - Patrimônio</title>
+  <link rel="icon" type="image/png" sizes="512x512" href="/logo_apk.png">
+  <link rel="shortcut icon" href="/logo_apk.png">
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1e3a8a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PatAsset">
+  <link rel="apple-touch-icon" href="/logo_apk.png">
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(r => r.unregister());
+      });
+    }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #60a5fa, #001435);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .login-wrapper {
+      display: flex;
+      width: 100%;
+      max-width: 900px;
+      min-height: 480px;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+
+    .panel-left {
+      flex: 1;
+      background: linear-gradient(160deg, #0f2a5e 0%, #1e3a8a 50%, #2563b0 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 30px;
+      gap: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel-left .deco {
+      position: absolute;
+      width: 180px; height: 180px;
+      object-fit: contain; opacity: 0.30;
+      pointer-events: none; z-index: 0;
+    }
+    .panel-left .deco-tl { top: -40px; left: -40px; transform: rotate(30deg); }
+    .panel-left .deco-br { bottom: -40px; right: -40px; transform: rotate(-20deg); }
+
+    .panel-left .bem-vindo {
+      color: #ffffff; font-size: 1.8rem; font-weight: 700;
+      letter-spacing: 0.5px; text-align: center; z-index: 1;
+    }
+    .panel-left .logo-hospital { z-index: 1; text-align: center; }
+    .panel-left .logo-hospital img {
+      width: 260px; max-width: 100%; height: auto;
+      display: block; margin: 0 auto;
+    }
+
+    .divider { width: 1px; background: rgba(255,255,255,0.15); }
+
+    .panel-right {
+      flex: 1; background: #ffffff;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 40px 36px;
+    }
+
+    .logo-pat { width: 110px; margin: 0 auto 8px auto; }
+    .logo-pat img { width: 100%; height: auto; display: block; }
+
+    .panel-right h1 { text-align: center; font-size: 1.7rem; margin-bottom: 4px; color: #111827; }
+    .panel-right h2 { text-align: center; font-size: 1rem; margin-bottom: 18px; color: #555; font-weight: 500; }
+
+    .field { margin-bottom: 12px; width: 100%; }
+    .field label { display:block; margin-bottom:6px; font-weight:600; color:#111827; }
+    .field input {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid #ccc; border-radius: 8px;
+      font-size: 14px; background: #f0f4ff;
+    }
+
+    .actions { display:flex; flex-direction:column; gap:10px; margin-top:14px; width: 100%; }
+    .btn { padding:12px; border:none; border-radius:10px; font-size:16px; background:#3b82f6; color:white; cursor:pointer; width: 100%; }
+    .btn:hover { background:#2563eb; }
+    .btn-secondary { background:#e5e7eb; color:#111827; }
+    .btn-secondary:hover { background:#d1d5db; }
+
+    .mensagem {
+      display:none; margin-top:12px; padding:10px;
+      border-radius:8px; font-weight:600; text-align:center; width: 100%;
+    }
+    .mensagem.sucesso { color:#065f46; background:#d1fae5; border:1px solid #10b981; }
+    .mensagem.erro    { color:#991b1b; background:#fee2e2; border:1px solid #ef4444; }
+
+    /* Campo-armadilha (honeypot): fora da tela, sem display:none — alguns
+       robôs ignoram campos com display:none, mas preenchem estes. */
+    .hp-campo {
+      position: absolute; left: -9999px; top: -9999px;
+      width: 1px; height: 1px; overflow: hidden;
+    }
+
+    .rodape-ajuda {
+      margin-top: 16px; font-size: 12px; color: #9ca3af; text-align: center;
+    }
+
+    .btn:disabled { background:#93c5fd; cursor:not-allowed; }
+
+    /* Modal DEV */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
+      z-index: 1000; justify-content: center; align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-box {
+      background: #fff; border-radius: 16px; padding: 36px 32px;
+      width: 100%; max-width: 380px;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.35);
+      text-align: center; animation: modalIn 0.22s ease;
+    }
+    @keyframes modalIn {
+      from { transform: scale(0.92); opacity: 0; }
+      to   { transform: scale(1);    opacity: 1; }
+    }
+    .modal-box .modal-icon { font-size: 2.2rem; margin-bottom: 10px; }
+    .modal-box h3 { font-size: 1.2rem; color: #111827; margin-bottom: 6px; }
+    .modal-box p  { font-size: 0.9rem; color: #6b7280; margin-bottom: 24px; }
+    .modal-btns   { display: flex; flex-direction: column; gap: 10px; }
+    .modal-btn {
+      flex: 1; padding: 13px 10px; border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: background 0.18s, transform 0.12s;
+    }
+    .modal-btn:active { transform: scale(0.97); }
+    .modal-btn-pat { background: #1e3a8a; color: #fff; }
+    .modal-btn-pat:hover { background: #1e40af; }
+    .modal-btn-eng { background: #0f766e; color: #fff; }
+    .modal-btn-eng:hover { background: #0d9488; }
+    .modal-btn-dev { background: #4b1d96; color: #fff; }
+    .modal-btn-dev:hover { background: #6d28d9; }
+
+    @media (max-width: 640px) {
+      .login-wrapper { flex-direction: column; max-width: 420px; }
+      .divider { width: 100%; height: 1px; }
+      .panel-left { padding: 30px 20px; gap: 16px; }
+      .panel-left .bem-vindo { font-size: 1.4rem; }
+      .panel-left .logo-hospital img { width: 160px; }
+      .panel-right { padding: 28px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Modal seleção de módulo (DEV) -->
+  <div class="modal-overlay" id="modalDev">
+    <div class="modal-box">
+      <div class="modal-icon">🛠️</div>
+      <h3>Modo Desenvolvedor</h3>
+      <p>Qual módulo você deseja acessar?</p>
+      <div class="modal-btns">
+        <button class="modal-btn modal-btn-pat" onclick="window.location.href='inicial.php'">
+          🏥 Patrimônio
+        </button>
+        <button class="modal-btn modal-btn-eng" onclick="window.location.href='engenharia_clinica_inicial.php'">
+          ⚙️ Engenharia Clínica
+        </button>
+        <button class="modal-btn modal-btn-dev" onclick="window.location.href='dev_painel.php'">
+          🛠️ Painel do Desenvolvedor
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="login-wrapper">
+
+    <!-- Painel esquerdo -->
+    <div class="panel-left">
+      <img src="logotriangulotranslucido.png" class="deco deco-tl" alt="">
+      <img src="logotriangulotranslucido.png" class="deco deco-br" alt="">
+      <p class="bem-vindo">Bem vindo!</p>
+      <div class="logo-hospital">
+        <img src="logo_rede_claro.png" alt="Hospital Exemplo">
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Painel direito -->
+    <div class="panel-right">
+
+      <div class="logo-pat">
+        <img src="logo_index.png" alt="PatAsset">
+      </div>
+
+      <h2>Acesso ao Sistema</h2>
+
+      <form id="loginForm" method="POST" action="login.php" style="width:100%">
+        <div class="field">
+          <label for="usuario">Usuário</label>
+          <input id="usuario" name="usuario" type="text" placeholder="Digite seu usuário" autocomplete="username" required>
+        </div>
+
+        <div class="field">
+          <label for="senha">Senha</label>
+          <input id="senha" name="senha" type="password" placeholder="Digite sua senha" autocomplete="current-password" required>
+        </div>
+
+        <!-- Campo-armadilha: escondido por CSS, invisível para pessoas.
+             Robôs preenchem tudo que encontram e são rejeitados na hora. -->
+        <div class="hp-campo" aria-hidden="true">
+          <label for="website">Website</label>
+          <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+        </div>
+
+        <div class="mensagem" id="mensagem"></div>
+
+        <div class="actions">
+          <button type="submit" class="btn" id="btnEntrar">Entrar</button>
+        </div>
+
+        <p class="rodape-ajuda">
+          Novos acessos são criados pela equipe do PatAsset.
+        </p>
+      </form>
+
+    </div>
+  </div>
+
+  <script>
+    // ── Captura IP local via WebRTC assim que a página carrega ─────────────────
+    var _ipLocal = null;
+
+    (function capturarIPLocal() {
+      try {
+        var pc = new RTCPeerConnection({ iceServers: [] });
+        pc.createDataChannel('');
+        pc.createOffer()
+          .then(function(o) { return pc.setLocalDescription(o); })
+          .catch(function() {});
+
+        pc.onicecandidate = function(e) {
+          if (!e || !e.candidate) return;
+          var m = e.candidate.candidate.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+          if (m && m[1] !== '0.0.0.0' && !_ipLocal) {
+            _ipLocal = m[1];
+            try { pc.close(); } catch(x) {}
+          }
+        };
+
+        // Fecha após 3s mesmo sem candidato
+        setTimeout(function() { try { pc.close(); } catch(x) {} }, 3000);
+      } catch(e) {}
+    })();
+
+    // ── Restante do JS ─────────────────────────────────────────────────────────
+    const form       = document.getElementById('loginForm');
+    const mensagemEl = document.getElementById('mensagem');
+    const btnEntrar  = document.getElementById('btnEntrar');
+
+    function showMessage(text, type = 'erro', timeout = 4000) {
+      mensagemEl.textContent = text;
+      mensagemEl.className = 'mensagem ' + (type === 'sucesso' ? 'sucesso' : 'erro');
+      mensagemEl.style.display = 'block';
+      if (timeout) {
+        clearTimeout(mensagemEl._hideTimer);
+        mensagemEl._hideTimer = setTimeout(() => {
+          mensagemEl.style.display = 'none';
+        }, timeout);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const err = params.get('error');
+      if (err) {
+        showMessage(decodeURIComponent(err), 'erro', 6000);
+        history.replaceState(null, '', window.location.pathname);
+      }
+    });
+
+    /* Trava o botão durante o bloqueio, com contagem regressiva.
+       O horário de liberação fica guardado no navegador: assim recarregar a
+       página não zera a contagem visual. Vale lembrar que isso é só aparência
+       — quem impede o login é o servidor, e ele não depende do navegador. */
+    const CHAVE_BLOQUEIO = 'patasset_bloqueio_ate';
+    let _timerBloqueio = null;
+
+    function travarPorSegundos(seg, guardar = true) {
+      clearInterval(_timerBloqueio);
+      if (seg <= 0) { destravar(); return; }
+      if (guardar) {
+        try { localStorage.setItem(CHAVE_BLOQUEIO, String(Date.now() + seg * 1000)); } catch (e) {}
+      }
+      btnEntrar.disabled = true;
+      const tick = () => {
+        if (seg <= 0) { destravar(); return; }
+        const m = Math.floor(seg / 60), s = seg % 60;
+        btnEntrar.textContent = 'Aguarde ' + m + ':' + String(s).padStart(2, '0');
+        seg--;
+      };
+      tick();
+      _timerBloqueio = setInterval(tick, 1000);
+    }
+
+    function destravar() {
+      clearInterval(_timerBloqueio);
+      btnEntrar.disabled = false;
+      btnEntrar.textContent = 'Entrar';
+      try { localStorage.removeItem(CHAVE_BLOQUEIO); } catch (e) {}
+    }
+
+    // Retoma a contagem ao abrir ou recarregar a página
+    (function retomarBloqueio() {
+      try {
+        const ate = parseInt(localStorage.getItem(CHAVE_BLOQUEIO) || '0', 10);
+        const resta = Math.ceil((ate - Date.now()) / 1000);
+        if (resta > 0) {
+          travarPorSegundos(resta, false);
+          showMessage('Acesso temporariamente bloqueado por excesso de tentativas.', 'erro', 8000);
+        } else if (ate) {
+          localStorage.removeItem(CHAVE_BLOQUEIO);
+        }
+      } catch (e) {}
+    })();
+
+    // Reserva: se o servidor não mandar os segundos, tira do texto
+    function segundosDaMensagem(msg) {
+      const min = /(\d+)\s*minuto/i.exec(msg || '');
+      if (min) return parseInt(min[1], 10) * 60;
+      const seg = /(\d+)\s*segundo/i.exec(msg || '');
+      if (seg) return parseInt(seg[1], 10);
+      return 0;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (btnEntrar.disabled) return;
+
+      const usuario = document.getElementById('usuario').value.trim();
+      const senha   = document.getElementById('senha').value;
+      const website = document.getElementById('website').value;
+
+      // Monta body incluindo ip_local se capturado
+      let body = `usuario=${encodeURIComponent(usuario)}&senha=${encodeURIComponent(senha)}`
+               + `&website=${encodeURIComponent(website)}&ajax=1`;
+      if (_ipLocal) {
+        body += `&ip_local=${encodeURIComponent(_ipLocal)}`;
+      }
+
+      btnEntrar.disabled = true;
+      btnEntrar.textContent = 'Verificando...';
+
+      try {
+        const res = await fetch('login.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body,
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+
+        const data = await res.json();
+
+        if (!data.success) {
+          showMessage(data.message || 'Usuário ou senha inválidos.', 'erro', 8000);
+          const seg = data.bloqueado
+            ? (parseInt(data.segundos, 10) || segundosDaMensagem(data.message))
+            : 0;
+          if (seg > 0) {
+            travarPorSegundos(seg);
+          } else {
+            destravar();
+            document.getElementById('senha').value = '';
+            document.getElementById('senha').focus();
+          }
+          return;
+        }
+
+        // Login válido: limpa qualquer bloqueio guardado
+        try { localStorage.removeItem(CHAVE_BLOQUEIO); } catch (e) {}
+
+        const classe = (data.classe || '').trim().toUpperCase();
+
+        if (classe === 'PATRIMONIO') {
+          window.location.href = 'inicial.php';
+        } else if (classe === 'ENGENHARIA CLINICA') {
+          window.location.href = 'engenharia_clinica_inicial.php';
+        } else if (classe === 'DEV') {
+          document.getElementById('modalDev').classList.add('active');
+        } else {
+          form.submit();
+        }
+
+      } catch (err) {
+        // Fallback: submit normal sem ip_local
+        btnEntrar.disabled = false;
+        btnEntrar.textContent = 'Entrar';
+        form.submit();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  Nada que contenha credencial, dado real ou arquivo de usuário entra aqui.
+#
+#  Vale lembrar: o Git guarda o histórico para sempre. Um segredo enviado uma
+#  vez e removido no commit seguinte continua acessível no histórico — e há
+#  robôs varrendo o GitHub à procura exatamente disso. Não existe "conserta
+#  depois"; se escapar, o caminho é trocar a credencial.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ─── Credenciais ────────────────────────────────────────────────────────────
+segredos.php
+config/segredos.php
+**/segredos.php
+*credentials*.json
+oauth*.json
+google-credentials.json
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+
+# ─── Configuração preenchida (só o modelo é versionado) ────────────────────
+.user.ini
+src/.user.ini
+config/user.ini
+!config/user.ini.exemplo
+!config/segredos.exemplo.php
+
+# ─── Arquivos enviados por usuários ────────────────────────────────────────
+src/uploads/*
+!src/uploads/.gitkeep
+!src/uploads/**/.gitkeep
+!src/uploads/**/.htaccess
+
+# ─── Backups e dumps ───────────────────────────────────────────────────────
+BACKUP/
+BACKUP*/
+backups_*/
+*.sql.gz
+backup_*.sql
+!database/schema.sql
+!database/migrations/*.sql
+
+# ─── Logs e temporários ────────────────────────────────────────────────────
+logs/
+tmp/
+error_log
+php_error.log*
+*.log
+manutencao.flag
+
+# ─── Dependências ──────────────────────────────────────────────────────────
+vendor/
+node_modules/
+composer.lock
+
+# ─── Sistema operacional e editores ────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+*.bak
+*.orig

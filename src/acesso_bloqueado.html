@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acesso Bloqueado - Patrimônio</title>
+  <link rel="icon" type="image/png" href="/logo_1.png">
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #001435, #60a5fa);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .login-card {
+      background: #ffffff;
+      padding: 40px 30px;
+      border-radius: 16px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+      width: 100%;
+      max-width: 420px;
+      box-sizing: border-box;
+      text-align: center;
+    }
+
+    .logo {
+      width: 120px;
+      margin: 0 auto 16px auto;
+    }
+    .logo img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .bloqueio-img {
+      width: 180px;
+      margin: 0 auto 20px auto;
+    }
+    .bloqueio-img img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      color: #dc2626;
+      margin: 0 0 20px 0;
+    }
+
+    h2 {
+      font-size: 1rem;
+      color: #555;
+      font-weight: 500;
+      margin: 0 0 24px 0;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      background: #3b82f6;
+      color: white;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+    .btn:hover { background: #2563eb; }
+  </style>
+</head>
+<body>
+  <main class="login-card">
+
+    <div class="logo">
+      <img src="logo_1.png" alt="Logo">
+    </div>
+
+    <h1>ACESSO NEGADO!</h1>
+
+    <div class="bloqueio-img">
+      <img src="bloqueado.png" alt="Acesso Bloqueado">
+    </div>
+
+    <h2>Você não tem permissão para acessar esta página.<br>Retorne à página anterior.</h2>
+
+    <button class="btn" onclick="history.length > 1 ? history.back() : location.href='inicial.php'">
+      Voltar
+    </button>
+
+  </main>
+</body>
+</html>
