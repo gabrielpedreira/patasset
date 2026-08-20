@@ -56,8 +56,12 @@ O vetor real neste tipo de sistema não é o atacante externo, e sim o dado leg�
 
 ### Upload de arquivos
 
-- Tipo verificado pelo **conteúdo** (`finfo`), nunca pela extensão enviada
+- Tipo verificado pelo **conteúdo** (`finfo`), nunca pela extensão nem pelo
+  `Content-Type` enviados — ambos são texto escolhido por quem envia
 - Extensão final derivada do tipo detectado
+- Na devolução do arquivo, o `Content-Type` sai de uma lista fixa decidida
+  pelos bytes; o tipo guardado no banco é ignorado. `text/html` e
+  `image/svg+xml` estão fora da lista — SVG por ser imagem que carrega script
 - Nome gerado com `random_bytes`
 - Limite de tamanho
 - Pasta de upload com `Require all denied` e execução de PHP desativada
@@ -95,11 +99,42 @@ Transparência sobre o que não está resolvido:
 | Item | Situação |
 |---|---|
 | Autenticação em duas etapas para usuários | Não implementada |
-| Validação de tipo em três pontos de upload | Gravam como BLOB, sem execução possível, mas sem verificação de tipo |
-| Três endpoints sem verificação de sessão | Não expõem dado sensível, mas são inconsistências |
 | Política de expiração de senha | Não implementada |
 | Teste de invasão | Nunca realizado |
 | Revisão de conformidade com a LGPD | Não realizada |
+
+### Corrigido na última revisão
+
+Duas entradas desta tabela descreviam o risco **abaixo** do que ele era. Ficam
+registradas porque errar a gravidade de uma falha conhecida é, em si, um
+resultado da revisão:
+
+**"Três endpoints sem verificação de sessão — não expõem dado sensível."**
+Estava errado. Um deles enviava e-mail por SMTP institucional sem exigir
+sessão: um retransmissor aberto, útil para phishing em nome da instituição e
+suficiente para derrubar a reputação do domínio em listas de bloqueio.
+
+A causa não era um endpoint esquecido, e sim uma suposição. A função que
+endurece a sessão começa com `if (empty($_SESSION['usuario_logado'])) return;`
+— correto para o que ela faz, já que existem páginas públicas de propósito.
+Mas isso significa que **ela não autentica ninguém**, e vários endpoints a
+tratavam como se autenticasse. Autenticação virou uma chamada explícita
+(`seg_exigir_login()`), justamente para não voltar a ser presumida.
+
+**"Validação de tipo em três pontos de upload — sem execução possível."**
+A parte sobre execução estava certa: são BLOBs no banco, não arquivos em
+disco. A conclusão de que isso bastava, não. O tipo declarado no envio era
+gravado e depois devolvido em `header('Content-Type: ...')` — então um arquivo
+com script dentro, declarado como `text/html`, era servido como HTML na origem
+do sistema. XSS armazenado, executando na sessão de quem abrisse o anexo.
+
+`X-Content-Type-Options: nosniff` estava presente e não ajudava: ele impede o
+navegador de adivinhar um tipo diferente do declarado, e o tipo declarado era
+o problema. Hoje o tipo é lido dos bytes na entrada e escolhido de uma lista
+fixa na saída, sem consultar o banco.
+
+A lição que ficou: procurar execução de código e concluir "não há risco" deixa
+passar tudo o que não é execução de código.
 
 ---
 

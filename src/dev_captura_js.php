@@ -32,7 +32,100 @@ if (strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest') re
 // Token CSRF da sessão, se houver alguém logado
 require_once __DIR__ . '/seguranca_sessao.php';
 $_seg_token = function_exists('seg_token') ? seg_token() : '';
+
+/* Registro de visitante não logado.
+   Este é o único ponto do sistema que roda ao fim de TODA página HTML e já
+   conhece o estado da sessão — por isso a contagem vive aqui. Quem está
+   logado já aparece em usuarios_online; o que faltava era enxergar o acesso
+   anônimo, como o da abertura de chamado por QR Code. */
+if (empty($_SESSION['usuario_logado']) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    try { dev_registrar_presenca(); } catch (Throwable $e) {}
+}
+
+// Atalho para o painel do desenvolvedor.
+// Só é emitido para classe DEV — para os demais, o código nem existe na
+// página. Isso não é a proteção: o dev_painel.php tem controle de acesso
+// próprio. É só para não carregar peso inútil no navegador de quem não usa.
+$_seg_e_dev = false;
+if (session_status() === PHP_SESSION_ACTIVE) {
+    $_seg_e_dev = strtoupper(trim((string)($_SESSION['classe_usuario'] ?? ''))) === 'DEV';
+} elseif (function_exists('seg_classe_cache')) {
+    $_seg_e_dev = seg_classe_cache() === 'DEV';
+}
 ?>
+<?php if ($_seg_e_dev): ?>
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Atalho para o Painel do Desenvolvedor
+
+   F8         → abre direto
+   //dev      → segunda via, digitando a sequência
+
+   Duas formas porque cada uma falha num cenário diferente: tecla de função é
+   instantânea e não tem estado para dar errado, mas é fácil de esquecer;
+   sequência digitada é autoexplicativa, mas depende de janela de tempo.
+
+   Ctrl+Shift+D foi descartado: está ocupado pelo navegador (gerenciador de
+   favoritos no Chrome, modo responsivo no Firefox) e atalho de navegador tem
+   prioridade sobre a página — preventDefault() não alcança.
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function () {
+  if (window.__devAtalho) return;
+  window.__devAtalho = true;
+
+  var DESTINO = 'dev_painel.php';
+  var SEQUENCIA = '//dev';
+  var JANELA_MS = 1200;        // tempo máximo entre teclas da sequência
+
+  var digitado = '';
+  var ultimaTecla = 0;
+
+  /* Não interfere em quem está preenchendo formulário. Sem isso, digitar
+     "DEVOLUÇÃO" numa observação levaria a pessoa embora da tela, perdendo
+     o que estava escrevendo. */
+  function editando(alvo) {
+    if (!alvo) return false;
+    var tag = (alvo.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (alvo.isContentEditable) return true;
+    return false;
+  }
+
+  function abrir(origem) {
+    // Guarda de onde veio, para o painel poder oferecer um "voltar"
+    try { sessionStorage.setItem('dev_origem', location.pathname + location.search); } catch (e) {}
+    window.location.href = DESTINO;
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (editando(ev.target)) return;
+
+    /* ── F8 ── */
+    if (ev.key === 'F8') {
+      ev.preventDefault();
+      abrir('F8');
+      return;
+    }
+
+    /* ── Sequência //dev ── */
+    if (ev.key && ev.key.length === 1) {
+      var agora = Date.now();
+      if (agora - ultimaTecla > JANELA_MS) digitado = '';
+      ultimaTecla = agora;
+
+      digitado += ev.key.toLowerCase();
+      if (digitado.length > SEQUENCIA.length) {
+        digitado = digitado.slice(-SEQUENCIA.length);
+      }
+      if (digitado === SEQUENCIA) {
+        digitado = '';
+        abrir('sequencia');
+      }
+    }
+  }, true);
+})();
+</script>
+<?php endif; ?>
 <script>
 /* ═══════════════════════════════════════════════════════════════════════════
    Proteção CSRF e bloqueio por inatividade — dev_captura_js.php

@@ -218,6 +218,48 @@ function dev_registrar_ameaca(array $a): void {
     $st->close();
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRESENÇA DE VISITANTES NÃO LOGADOS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Registra o acesso de quem NÃO está logado.
+ *
+ * O sistema já sabia quem estava logado (tabela usuarios_online), mas era cego
+ * para o resto: a abertura de chamado é pública, acessível por QR Code, e
+ * ninguém tinha como saber se alguém a estava usando. Só se via o resultado —
+ * um chamado criado — nunca a tentativa.
+ *
+ * Uma linha por IP+página, atualizada a cada visita. Não cria registro novo a
+ * cada carregamento: seria uma tabela crescendo sem limite por nada.
+ */
+function dev_registrar_presenca(string $pagina = ''): void {
+    $c = dev_conn();
+    if (!$c) return;
+
+    $pagina = substr($pagina ?: basename($_SERVER['PHP_SELF'] ?? ''), 0, 100);
+    $ip     = dev_ip();
+    if ($ip === '') return;
+
+    $ua = substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
+    $d  = dev_dispositivo($ua);
+    $chave = md5($ip . '|' . $pagina);
+
+    $st = $c->prepare("
+        INSERT INTO dev_presenca
+            (chave, ip, pagina, navegador, sistema, dispositivo, visitas, primeira_em, ultima_em)
+        VALUES (?,?,?,?,?,?,1,NOW(),NOW())
+        ON DUPLICATE KEY UPDATE
+            visitas   = visitas + 1,
+            ultima_em = NOW(),
+            pagina    = VALUES(pagina)");
+    if (!$st) return;
+    $st->bind_param('ssssss', $chave, $ip, $pagina,
+                    $d['navegador'], $d['sistema'], $d['dispositivo']);
+    @$st->execute();
+    $st->close();
+}
+
 /**
  * Chamada padrão para páginas restritas: registra quem tentou entrar sem
  * ter direito. Use antes do header('Location: acesso_bloqueado.html').

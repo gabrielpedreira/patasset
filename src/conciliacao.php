@@ -6,6 +6,7 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 session_start();
 require_once "conexao.php";
+require_once __DIR__ . '/upload_seguro.php';
 require_once 'check_session.php';
 
 
@@ -169,7 +170,21 @@ if(isset($_POST['salvar'])){
                 $mensagem = "Erro ao salvar: ".$conn->error;
                 $tipoMensagem = "erro";
             } else {
-                if(isset($_FILES['pdf']) && $_FILES['pdf']['error']==0){
+                // Tipo lido dos bytes do arquivo, nunca do que o navegador
+                // declarou — ver upload_seguro.php. Este ponto não gravava
+                // mime_type nenhum, e o anexo ia para o banco sem qualquer
+                // conferência de conteúdo.
+                $mimePdf = ($_FILES['pdf']['error'] ?? 1) === 0
+                         ? up_mime_real($_FILES['pdf'], UP_MIME_DOCUMENTO)
+                         : false;
+
+                if ($mimePdf === false && ($_FILES['pdf']['error'] ?? 1) === 0) {
+                    $mensagem = "Os dados da nota foram salvos, mas o arquivo anexado "
+                              . "não foi aceito. Envie PDF ou imagem, com até 20 MB.";
+                    $tipoMensagem = "erro";
+                }
+
+                if($mimePdf !== false){
                     $arquivo = file_get_contents($_FILES['pdf']['tmp_name']);
                     $check = $conn->prepare("SELECT id FROM nota WHERE tag_patrimonio=? OR numero_serie=?");
                     $check->bind_param("ss",$tagS,$serieS);
@@ -189,8 +204,13 @@ if(isset($_POST['salvar'])){
                     $check->close();
                 }
 
-                $mensagem = "Conciliação salva com sucesso!";
-                $tipoMensagem = "sucesso";
+                // Não sobrescreve o aviso do anexo recusado: os dados da nota
+                // foram gravados, mas dizer só "salva com sucesso" faria o
+                // usuário acreditar que o arquivo entrou.
+                if ($tipoMensagem !== "erro") {
+                    $mensagem = "Conciliação salva com sucesso!";
+                    $tipoMensagem = "sucesso";
+                }
                 $concFields = array_fill_keys(array_keys($concFields),'');
                 $dados = null;
 

@@ -2,6 +2,11 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once 'conexao.php';
 
+// Devolve unidade, setor e pavimento do inventário. Dado interno: exige login.
+// conexao.php sozinho não autentica — ver seg_exigir_login() em
+// seguranca_sessao.php.
+seg_exigir_login();
+
 $nivel     = $_GET['nivel']     ?? '';
 $unidade   = strtoupper(trim($_GET['unidade']   ?? ''));
 $setor     = strtoupper(trim($_GET['setor']     ?? ''));

@@ -572,7 +572,58 @@ if (isset($_POST['action'])) {
         $total_mov        = $conn->query("SELECT COUNT(*) AS c FROM historico")->fetch_assoc()['c'] ?? 0;
         $total_usuarios   = $conn->query("SELECT COUNT(*) AS c FROM usuarios")->fetch_assoc()['c'] ?? 0;
         $total_bloqueados = $conn->query("SELECT COUNT(*) AS c FROM usuarios WHERE status='BLOQUEADO'")->fetch_assoc()['c'] ?? 0;
-        $total_online     = $conn->query("SELECT COUNT(*) AS c FROM usuarios_online WHERE revogada=0 AND ultimo_acesso >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)")->fetch_assoc()['c'] ?? 0;
+        // "Agora" = 5 minutos. Trinta minutos contava gente que já tinha ido
+        // embora, e o cartão dizia "online" para quem fechou o navegador.
+        $total_online = $conn->query("SELECT COUNT(DISTINCT usuario) AS c FROM usuarios_online
+                                      WHERE revogada=0
+                                        AND ultimo_acesso >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)")
+                             ->fetch_assoc()['c'] ?? 0;
+
+        // ── Visitantes sem login (ver dev_presenca) ──────────────────────────
+        $anon_agora = 0; $anon_hoje = 0; $anon_paginas = [];
+        $tem_pres = $conn->query("SHOW TABLES LIKE 'dev_presenca'");
+        if ($tem_pres && $tem_pres->num_rows) {
+            $r = $conn->query("SELECT COUNT(DISTINCT ip) AS c FROM dev_presenca
+                               WHERE ultima_em >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)");
+            $anon_agora = $r ? (int)$r->fetch_assoc()['c'] : 0;
+
+            $r = $conn->query("SELECT COUNT(DISTINCT ip) AS c FROM dev_presenca
+                               WHERE DATE(ultima_em) = CURDATE()");
+            $anon_hoje = $r ? (int)$r->fetch_assoc()['c'] : 0;
+
+            $r = $conn->query("SELECT pagina, COUNT(DISTINCT ip) AS ips, SUM(visitas) AS v
+                               FROM dev_presenca
+                               WHERE ultima_em >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                               GROUP BY pagina ORDER BY v DESC LIMIT 6");
+            if ($r) while ($x = $r->fetch_assoc()) $anon_paginas[] = $x;
+        }
+
+        // ── Erros e ameaças em aberto ───────────────────────────────────────
+        $erros_24h = 0; $ameacas_graves = 0;
+        $t = $conn->query("SHOW TABLES LIKE 'dev_log_erros'");
+        if ($t && $t->num_rows) {
+            $r = @$conn->query("SELECT COUNT(*) AS c FROM dev_log_erros
+                                WHERE resolvido = 0
+                                  AND COALESCE(atualizado_em, criado_em) >= DATE_SUB(NOW(), INTERVAL 24 HOUR)");
+            $erros_24h = $r ? (int)$r->fetch_assoc()['c'] : 0;
+        }
+        $t = $conn->query("SHOW TABLES LIKE 'dev_ameacas'");
+        if ($t && $t->num_rows) {
+            $r = @$conn->query("SELECT COUNT(*) AS c FROM dev_ameacas
+                                WHERE revisado = 0 AND severidade IN ('ALTA','CRITICA')");
+            $ameacas_graves = $r ? (int)$r->fetch_assoc()['c'] : 0;
+        }
+
+        // ── Último backup ───────────────────────────────────────────────────
+        $bk = null;
+        $t = $conn->query("SHOW TABLES LIKE 'dev_backups'");
+        if ($t && $t->num_rows) {
+            $r = $conn->query("SELECT situacao, tamanho, arquivo, local_ok, drive_ok,
+                                      DATE_FORMAT(iniciado_em,'%d/%m %H:%i') AS quando,
+                                      TIMESTAMPDIFF(HOUR, iniciado_em, NOW()) AS horas
+                               FROM dev_backups ORDER BY id DESC LIMIT 1");
+            if ($r) $bk = $r->fetch_assoc();
+        }
 
         // ── Último cadastro e última movimentação ─────────────────────────────
         $ult_cad_q = $conn->query("SELECT usuario_cadastro, DATE_FORMAT(periodo,'%d/%m/%Y %H:%i') AS dt FROM cadastro ORDER BY id DESC LIMIT 1");
@@ -611,6 +662,13 @@ if (isset($_POST['action'])) {
             'total_bloqueados' => $total_bloqueados,
             'total_online'     => $total_online,
             'acessos_hoje'     => $acessos_hoje,
+            'anon_agora'       => $anon_agora,
+            'anon_hoje'        => $anon_hoje,
+            'anon_paginas'     => $anon_paginas,
+            'erros_24h'        => $erros_24h,
+            'ameacas_graves'   => $ameacas_graves,
+            'backup'           => $bk,
+            'backup_manter'    => defined('BACKUP_MANTER') ? BACKUP_MANTER : 30,
             'ult_cad'          => $ult_cad,
             'ult_mov'          => $ult_mov,
             'maior_tabela'     => $maior,
@@ -1531,6 +1589,12 @@ tbody tr.row-bloqueado { background: rgba(239,68,68,.03); }
       Sistema online
     </div>
     <div class="topbar-clock" id="clock"></div>
+    <!-- Aparece só quando o painel foi aberto pelo atalho (F8 ou //dev),
+         levando de volta à tela onde a pessoa estava. -->
+    <a href="#" id="btn-voltar-origem" class="btn btn-ghost btn-sm"
+       style="display:none;margin-right:8px" title="Voltar à tela anterior">
+      <i class="fas fa-arrow-left"></i> <span id="btn-voltar-nome">Voltar</span>
+    </a>
     <a href="index.html" class="btn-logout"><i class="fas fa-arrow-right-from-bracket"></i> Sair</a>
   </header>
 
@@ -1688,40 +1752,82 @@ tbody tr.row-bloqueado { background: rgba(239,68,68,.03); }
     <!-- ══════════ PÁGINA: DESEMPENHO ══════════ -->
     <div id="page-desempenho" class="page">
 
-      <!-- ── Linha 1: PatAsset ── -->
-      <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-4);margin-bottom:10px">PatAsset</div>
+      <!-- ── Linha 1: quem está no sistema agora ──
+           Substituiu os totais de patrimônio (itens, baixas, movimentações),
+           que são número de negócio e não de operação: eles não mudam nada
+           no que o desenvolvedor precisa decidir. -->
+      <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-4);margin-bottom:10px">Agora no sistema</div>
       <div class="stats-row" style="margin-bottom:20px">
         <div class="stat-card">
-          <div class="stat-label"><i class="fas fa-box-archive" style="color:var(--blue)"></i> Patrimônios</div>
-          <div class="stat-value" id="pd-cadastro" style="color:var(--blue)">—</div>
-          <div class="stat-sub">itens cadastrados</div>
-          <div class="stat-insight" id="ins-cadastro"></div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label"><i class="fas fa-circle-check" style="color:var(--green)"></i> Ativos</div>
-          <div class="stat-value" id="pd-ativos" style="color:var(--green)">—</div>
-          <div class="stat-sub">em operação</div>
-          <div class="stat-insight" id="ins-ativos"></div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label"><i class="fas fa-trash-can" style="color:var(--red)"></i> Descartados</div>
-          <div class="stat-value" id="pd-baixa" style="color:var(--red)">—</div>
-          <div class="stat-sub">baixas definitivas</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label"><i class="fas fa-right-left" style="color:var(--amber)"></i> Movimentações</div>
-          <div class="stat-value" id="pd-mov" style="color:var(--amber)">—</div>
-          <div class="stat-sub">no histórico</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label"><i class="fas fa-arrow-right-to-bracket" style="color:var(--purple)"></i> Acessos hoje</div>
-          <div class="stat-value" id="pd-acessos" style="color:var(--purple)">—</div>
-          <div class="stat-sub">logins no dia</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label"><i class="fas fa-circle" style="color:var(--green);font-size:8px"></i> Online agora</div>
+          <div class="stat-label"><i class="fas fa-user-check" style="color:var(--green)"></i> Logados</div>
           <div class="stat-value" id="pd-online" style="color:var(--green)">—</div>
-          <div class="stat-sub">usuários ativos</div>
+          <div class="stat-sub">com sessão ativa</div>
+          <div class="stat-insight" id="ins-online"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label"><i class="fas fa-user-secret" style="color:var(--blue)"></i> Sem login</div>
+          <div class="stat-value" id="pd-anonimos" style="color:var(--blue)">—</div>
+          <div class="stat-sub">visitantes anônimos</div>
+          <div class="stat-insight" id="ins-anonimos"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label"><i class="fas fa-arrow-right-to-bracket" style="color:var(--purple)"></i> Logins hoje</div>
+          <div class="stat-value" id="pd-acessos" style="color:var(--purple)">—</div>
+          <div class="stat-sub">entradas no dia</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label"><i class="fas fa-eye" style="color:var(--blue)"></i> Visitas anônimas</div>
+          <div class="stat-value" id="pd-anon-hoje" style="color:var(--blue)">—</div>
+          <div class="stat-sub">hoje, sem login</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label"><i class="fas fa-bug" style="color:var(--amber)"></i> Erros 24h</div>
+          <div class="stat-value" id="pd-erros" style="color:var(--amber)">—</div>
+          <div class="stat-sub">em aberto</div>
+          <div class="stat-insight" id="ins-erros"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label"><i class="fas fa-shield-halved" style="color:var(--red)"></i> Ameaças</div>
+          <div class="stat-value" id="pd-ameacas" style="color:var(--red)">—</div>
+          <div class="stat-sub">graves, não revisadas</div>
+          <div class="stat-insight" id="ins-ameacas"></div>
+        </div>
+      </div>
+
+      <!-- ── Linha 2: saúde do backup ── -->
+      <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-4);margin-bottom:10px">Backup</div>
+      <div class="stats-row" style="margin-bottom:20px">
+        <div class="stat-card">
+          <div class="stat-label"><i class="fas fa-calendar-check"></i> Último backup</div>
+          <div class="stat-value" id="pd-bk-quando" style="font-size:17px">—</div>
+          <div class="stat-sub" id="pd-bk-sit">—</div>
+          <div class="stat-insight" id="ins-backup"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label"><i class="fas fa-file-zipper"></i> Tamanho</div>
+          <div class="stat-value" id="pd-bk-tam" style="font-size:17px">—</div>
+          <div class="stat-sub">do último arquivo</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label"><i class="fab fa-google-drive"></i> Espaço no Drive</div>
+          <div class="stat-value" id="pd-bk-drive" style="font-size:17px">—</div>
+          <div class="stat-sub" id="pd-bk-drive-sub">projeção com a retenção atual</div>
+          <div class="stat-insight" id="ins-drive"></div>
+        </div>
+      </div>
+
+      <!-- ── Acessos sem login ── -->
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-user-secret"></i> Acessos sem login — últimas 24h</div>
+        </div>
+        <div class="card-body">
+          <div style="font-size:12px;color:var(--txt-3);margin-bottom:12px;line-height:1.6">
+            Páginas abertas por quem não estava autenticado. A abertura de chamado é
+            pública por QR Code, então movimento aqui é esperado — o que vale observar
+            é acesso a páginas que <b>deveriam</b> exigir login.
+          </div>
+          <div id="pd-anon-lista"></div>
         </div>
       </div>
 
@@ -3596,15 +3702,20 @@ async function salvarAutorizacao(id) {
 // ═══════════════════════════════════════════
 // INSIGHTS
 // ═══════════════════════════════════════════
+/* Limites do banco recalibrados com os números reais da hospedagem.
+   Os anteriores alertavam a partir de 150 MB, o que fazia o painel gritar com
+   um banco perfeitamente saudável.
+   O limite que realmente restringe NÃO é o disco do servidor (150 GB, com 1%
+   em uso) — é a cota de 15 GB do Google Drive, onde cabem N cópias do backup.
+   Com retenção de 30, um banco de 700 MB já ocuparia o Drive inteiro. */
 function insightBanco(mb) {
   mb = parseFloat(mb)||0;
-  if (mb<10)   return['ok',    '🟢 Banco enxuto — praticamente vazio.'];
-  if (mb<50)   return['ok',    '🟢 Tamanho saudável. Muita margem.'];
-  if (mb<150)  return['ok',    '🟡 Banco em crescimento normal.'];
-  if (mb<300)  return['warn',  '🟡 Crescendo. Monitore tabelas grandes.'];
-  if (mb<500)  return['warn',  '🟠 Atenção: acima de 300 MB.'];
-  if (mb<1000) return['danger','🔴 Banco pesado. Revise dados antigos.'];
-  return['danger','🔴 Banco crítico. Migre imagens para externo.'];
+  if (mb<50)   return['ok',    'Banco pequeno. Muita margem.'];
+  if (mb<300)  return['ok',    'Tamanho confortável para o backup semanal.'];
+  if (mb<600)  return['ok',    'Normal. O backup ainda cabe folgado no Drive.'];
+  if (mb<900)  return['warn',  'O backup começa a apertar a cota do Drive.'];
+  if (mb<1500) return['warn',  'Reduza a retenção ou separe os anexos do backup.'];
+  return['danger','O backup não cabe no Drive com a retenção atual.'];
 }
 function insightUptime(s) {
   const d=parseInt(s.match(/(\d+)d/)?.[1]||0), h=parseInt(s.match(/(\d+)h/)?.[1]||0), t=d*24+h;
@@ -3624,15 +3735,17 @@ function insightQueries(s) {
   if (q<10000*M) return['info',  'ℹ️ Contador global elevado. Normal após muitos dias sem restart.'];
   return['info','ℹ️ Uptime longo — contador acumula de todos os sistemas do servidor.'];
 }
+/* Threads_connected é uma variável GLOBAL do MySQL: numa hospedagem
+   compartilhada, conta as conexões de todas as contas do servidor, não só as
+   suas. Por isso o texto não afirma nada sobre "seu" sistema — dizer
+   "servidor ocioso" a partir desse número seria conclusão sem base. */
 function insightThreads(t) {
   t=parseInt(t)||0;
-  if (t<=2)  return['ok',   '🟢 Servidor ocioso.'];
-  if (t<=5)  return['ok',   '🟢 Carga leve.'];
-  if (t<=10) return['ok',   '🟢 Uso normal.'];
-  if (t<=20) return['ok',   '🟡 Uso moderado.'];
-  if (t<=40) return['warn', '🟠 Uso elevado. Monitore.'];
-  if (t<=80) return['danger','🔴 Muitas conexões ativas.'];
-  return['danger','🔴 Conexões críticas.'];
+  if (t<=5)  return['ok',   'Contador do servidor inteiro, não só deste sistema.'];
+  if (t<=15) return['ok',   'Movimento normal no servidor compartilhado.'];
+  if (t<=40) return['ok',   'Servidor movimentado — inclui outras contas.'];
+  if (t<=80) return['warn', 'Muitas conexões no servidor. Pode afetar a resposta.'];
+  return['danger','Servidor congestionado. Se houver lentidão, é aqui.'];
 }
 function insightMemoria(s) {
   const mb=parseFloat((s||'0').replace(' MB',''))||0;
@@ -3669,22 +3782,66 @@ async function carregarMetricas() {
   const res = await post({ action: 'metricas' });
   if (!res.ok) return;
 
-  // ── PatAsset ─────────────────────────────────────────────────────────────
-  document.getElementById('pd-cadastro').textContent = res.total_cadastro || '—';
-  document.getElementById('pd-ativos').textContent   = res.total_ativos   || '—';
-  document.getElementById('pd-baixa').textContent    = res.total_baixa    || '—';
-  document.getElementById('pd-mov').textContent      = res.total_mov      || '—';
-  document.getElementById('pd-acessos').textContent  = res.acessos_hoje   ?? '—';
-  document.getElementById('pd-online').textContent   = res.total_online   ?? '—';
+  // ── Agora no sistema ─────────────────────────────────────────────────────
+  const def = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
 
-  // Insight patrimônios ativos vs total
-  const tot = parseInt((res.total_cadastro || '0').replace(/\./g,''));
-  const atv = parseInt((res.total_ativos   || '0').replace(/\./g,''));
-  const pct = tot > 0 ? Math.round(atv/tot*100) : 0;
-  const elCad = document.getElementById('ins-cadastro');
-  const elAtv = document.getElementById('ins-ativos');
-  if (elCad) { elCad.textContent = `${pct}% ativos do total`; elCad.className = 'stat-insight ' + (pct >= 80 ? 'insight-ok' : pct >= 50 ? 'insight-warn' : 'insight-danger'); }
-  if (elAtv) { elAtv.textContent = `${100-pct}% inativos/baixa`; elAtv.className = 'stat-insight insight-info'; }
+  def('pd-online',    res.total_online   ?? '—');
+  def('pd-anonimos',  res.anon_agora     ?? '—');
+  def('pd-acessos',   res.acessos_hoje   ?? '—');
+  def('pd-anon-hoje', res.anon_hoje      ?? '—');
+  def('pd-erros',     res.erros_24h      ?? '—');
+  def('pd-ameacas',   res.ameacas_graves ?? '—');
+
+  const online = parseInt(res.total_online || 0, 10);
+  renderInsight('ins-online', online > 0 ? 'ok' : 'info',
+    online === 0 ? 'Ninguém usando agora.' : online + ' com atividade nos últimos 5 min.');
+
+  const anon = parseInt(res.anon_agora || 0, 10);
+  renderInsight('ins-anonimos', anon > 0 ? 'info' : 'ok',
+    anon === 0 ? 'Nenhum acesso anônimo agora.'
+               : anon + ' endereço(s) em páginas públicas.');
+
+  const er = parseInt(res.erros_24h || 0, 10);
+  renderInsight('ins-erros',
+    er === 0 ? 'ok' : (er < 5 ? 'warn' : 'danger'),
+    er === 0 ? 'Nenhum erro nas últimas 24h.' : 'Ver em DEV → Erros.');
+
+  const am = parseInt(res.ameacas_graves || 0, 10);
+  renderInsight('ins-ameacas',
+    am === 0 ? 'ok' : 'danger',
+    am === 0 ? 'Nada grave em aberto.' : 'Exigem revisão.');
+
+  // ── Backup ───────────────────────────────────────────────────────────────
+  const bk = res.backup;
+  if (bk) {
+    const mb = (parseInt(bk.tamanho, 10) || 0) / 1048576;
+    def('pd-bk-quando', bk.quando || '—');
+    def('pd-bk-sit', bk.situacao + (bk.local_ok == 1 && bk.drive_ok == 1
+        ? ' · dois destinos' : ' · um destino'));
+    def('pd-bk-tam', mb > 0 ? mb.toFixed(0) + ' MB' : '—');
+
+    const horas = parseInt(bk.horas, 10) || 0;
+    // Backup semanal: acima de 8 dias significa que o agendamento falhou.
+    renderInsight('ins-backup',
+      bk.situacao === 'FALHA' ? 'danger' : (horas > 192 ? 'danger' : (horas > 24 ? 'ok' : 'ok')),
+      bk.situacao === 'FALHA' ? 'Última execução falhou.'
+        : (horas > 192 ? 'Há mais de 8 dias — verifique o agendamento.'
+                       : 'há ' + (horas < 24 ? horas + 'h' : Math.floor(horas/24) + ' dia(s)')));
+
+    // Projeção de uso no Drive: é o limite real (15 GB), não o disco do servidor
+    const manter = parseInt(res.backup_manter || 30, 10);
+    const gb = (mb * manter) / 1024;
+    def('pd-bk-drive', gb.toFixed(1) + ' GB');
+    def('pd-bk-drive-sub', manter + ' cópias de ' + mb.toFixed(0) + ' MB');
+    const pctDrive = Math.round(gb / 15 * 100);
+    renderInsight('ins-drive',
+      pctDrive < 50 ? 'ok' : (pctDrive < 80 ? 'warn' : 'danger'),
+      pctDrive + '% da cota de 15 GB do Drive');
+  } else {
+    def('pd-bk-quando', 'Nenhum');
+    def('pd-bk-sit', 'sem registro');
+    renderInsight('ins-backup', 'danger', 'Nenhum backup registrado.');
+  }
 
   // Última atividade
   const ultCad = res.ult_cad;
@@ -3697,6 +3854,23 @@ async function carregarMetricas() {
   if (elUM) elUM.innerHTML = ultMov
     ? `<span style="color:var(--txt-1)">${esc(ultMov.dt)}</span><br><span style="color:var(--txt-3);font-size:11px">por ${esc(ultMov.usuario_mov || '—')}</span>`
     : '<span style="color:var(--txt-4)">nenhum registro</span>';
+
+  // ── Onde os visitantes sem login estiveram (24h) ─────────────────────────
+  const boxAnon = document.getElementById('pd-anon-lista');
+  if (boxAnon) {
+    const lst = res.anon_paginas || [];
+    boxAnon.innerHTML = lst.length
+      ? lst.map(p => `
+          <div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;
+                      border-bottom:1px solid var(--border);font-size:12.5px">
+            <span style="font-family:var(--font-mono);color:var(--txt-2);word-break:break-all">
+              ${esc(p.pagina)}</span>
+            <span style="color:var(--txt-4);white-space:nowrap">
+              ${esc(p.ips)} origem(ns) · ${esc(p.v)} visita(s)</span>
+          </div>`).join('')
+      : '<div style="color:var(--txt-4);font-size:12.5px;padding:8px 0">'
+        + 'Nenhum acesso sem login nas últimas 24 horas.</div>';
+  }
 
   // ── Servidor ─────────────────────────────────────────────────────────────
   document.getElementById('pd-size').textContent   = (res.size_mb || '0') + ' MB';
@@ -4177,6 +4351,28 @@ async function toggleManutencao() {
 // ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
+/* Botão de voltar, quando o painel foi aberto pelo atalho.
+   A origem é gravada pelo dev_captura_js.php no momento do atalho. */
+(function botaoVoltar() {
+  var origem = null;
+  try { origem = sessionStorage.getItem('dev_origem'); } catch (e) {}
+  if (!origem || origem.indexOf('dev_painel.php') !== -1) return;
+
+  var a = document.getElementById('btn-voltar-origem');
+  var n = document.getElementById('btn-voltar-nome');
+  if (!a) return;
+
+  a.href = origem;
+  if (n) {
+    var arquivo = origem.split('?')[0].split('/').pop() || 'tela anterior';
+    n.textContent = 'Voltar: ' + arquivo.replace('.php', '');
+  }
+  a.style.display = '';
+  a.addEventListener('click', function () {
+    try { sessionStorage.removeItem('dev_origem'); } catch (e) {}
+  });
+})();
+
 document.getElementById('search-usr').value = '';
 carregarUsuarios();
 carregarBloqueios();

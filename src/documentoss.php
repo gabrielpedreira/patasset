@@ -6,6 +6,7 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 session_start();
 require_once "conexao.php";
+require_once __DIR__ . '/upload_seguro.php';
 require_once 'check_session.php';
 
 $usuario_logado = $_SESSION['usuario_logado'] ?? '';
@@ -213,10 +214,15 @@ if (isset($_POST['salvar_conc'])) {
                 $msgConc = "Erro ao salvar: ".$conn->error; $tipoMsgConc = "erro";
             } else {
                 $tipo_doc_conc = 'NOTA FISCAL'; $titulo_doc_conc = 'CONCILIACAO';
-                if (isset($_FILES['pdf_conc']) && $_FILES['pdf_conc']['error']==0) {
+                // O tipo vem dos bytes do arquivo, não do que o navegador
+                // declarou — ver upload_seguro.php. Tipo recusado: grava os
+                // dados da nota e ignora o anexo.
+                $mime = ($_FILES['pdf_conc']['error'] ?? 1) === 0
+                      ? up_mime_real($_FILES['pdf_conc'], UP_MIME_DOCUMENTO)
+                      : false;
+
+                if ($mime !== false) {
                     $arquivo = file_get_contents($_FILES['pdf_conc']['tmp_name']);
-                    $mime    = preg_replace('/[^a-zA-Z0-9\/\.\-\+]/', '', $_FILES['pdf_conc']['type']);
-                    if (empty($mime)) $mime = 'application/pdf';
                     $dtRefConc = ($f8 !== '') ? $f8 : null;
                     if ($idNotaExist) {
                         $upd = $conn->prepare("UPDATE nota SET tipo_doc=?, titulo_doc=?, numero_nota=?, dt_referencia=?, nota_fiscal=?, mime_type=?, tag_patrimonio=?, numero_serie=? WHERE id=?");
@@ -280,14 +286,19 @@ if (isset($_POST['adicionar'])) {
         $numero_nota    = $_POST['numero_nota_doc'];
         $numero_serie   = $_POST['numero_serie_doc'];
         $tag_patrimonio = $_POST['tag_patrimonio_doc'];
-        $arquivo_bin    = file_get_contents($_FILES['arquivo']['tmp_name']);
-        /* sanitiza mime_type: remove bytes fora do ASCII imprimível para evitar erro de charset no banco */
-        $mime_type      = preg_replace('/[^a-zA-Z0-9\/\.\-\+]/', '', $_FILES['arquivo']['type']);
-        if (empty($mime_type)) $mime_type = 'application/octet-stream';
-        $mimes_ok = ['application/pdf','image/png','image/jpeg','image/jpg','image/gif','image/webp'];
-        if (!in_array($mime_type, $mimes_ok)) {
-            $msgDoc = "Tipo de arquivo não permitido. Envie PDF, PNG, JPG, GIF ou WEBP."; $tipoMsgDoc = "erro";
+        /* A lista de tipos permitidos já existia aqui, mas era conferida
+           contra $_FILES['arquivo']['type'] — o Content-Type declarado por
+           quem envia, e portanto escolhido por ele. Passar na lista não
+           dizia nada sobre o conteúdo do arquivo. Agora o tipo é lido dos
+           bytes; ver upload_seguro.php. */
+        $mime_type = up_mime_real($_FILES['arquivo'], UP_MIME_DOCUMENTO);
+
+        if ($mime_type === false) {
+            $msgDoc = "Arquivo não permitido. Envie PDF ou imagem (PNG, JPG, GIF, WEBP), "
+                    . "com até 20 MB. Se o arquivo parece correto, ele pode estar "
+                    . "corrompido ou com a extensão trocada."; $tipoMsgDoc = "erro";
         } else {
+            $arquivo_bin = file_get_contents($_FILES['arquivo']['tmp_name']);
             $stmt = $conn->prepare("INSERT INTO nota (tipo_doc,titulo_doc,dt_referencia,numero_nota,numero_serie,tag_patrimonio,nota_fiscal,mime_type) VALUES (?,?,?,?,?,?,?,?)");
             $null = null;
             // ordem: tipo_doc, titulo_doc, dt_referencia, numero_nota, numero_serie, tag_patrimonio, nota_fiscal(blob), mime_type

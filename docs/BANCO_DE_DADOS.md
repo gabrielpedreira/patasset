@@ -64,7 +64,15 @@ Collation `utf8mb4_unicode_ci` em todas as tabelas — insensível a acento e ca
 
 ## Relacionamentos principais
 
-Não há chaves estrangeiras declaradas — a integridade é mantida pela aplicação.
+A maior parte das relações é mantida pela aplicação, sem chave estrangeira
+declarada. Há exceções: o módulo de engenharia clínica declara FKs entre
+chamado, ordem de serviço e retirada de peças (`fk_os_chamado`, entre outras).
+
+A distinção não é acadêmica. Uma tentativa de `TRUNCATE` em tabela referenciada
+falha com o erro 1701 mesmo quando a tabela filha está vazia, porque a checagem
+é sobre a existência da restrição, não sobre os dados — nesse caso é `DELETE`
+que resolve. Vale conferir com `SHOW CREATE TABLE` antes de assumir que não há
+restrição, em vez de confiar nesta documentação.
 Os vínculos que importam:
 
 ```

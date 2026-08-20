@@ -86,6 +86,20 @@ function seg_token(): string {
 }
 
 /**
+ * Classe do usuário, com cache pelo mesmo motivo do token: telas que chamam
+ * session_write_close() no início deixam $_SESSION ilegível no momento em que
+ * o rodapé da página é montado. Sem o cache, o atalho do painel não seria
+ * emitido justamente nas telas onde o DEV mais trabalha.
+ */
+function seg_classe_cache(): string {
+    static $cache = '';
+    if (session_status() === PHP_SESSION_ACTIVE && !empty($_SESSION['classe_usuario'])) {
+        $cache = strtoupper(trim((string)$_SESSION['classe_usuario']));
+    }
+    return $cache;
+}
+
+/**
  * Publica o token num cookie legível por JavaScript.
  *
  * POR QUE ISSO É NECESSÁRIO:
@@ -178,6 +192,7 @@ function seg_guardar(): void {
     // chamam session_write_close() depois disso continuam conseguindo emitir o
     // token no fim do HTML, lendo do cache da função.
     seg_token();
+    seg_classe_cache();     // guarda a classe enquanto a sessão está aberta
     seg_publicar_cookie();
 
     // ── CSRF ────────────────────────────────────────────────────────────────
@@ -190,7 +205,46 @@ function seg_guardar(): void {
     // hash_equals compara em tempo constante — comparação com == permitiria
     // descobrir o token byte a byte medindo o tempo de resposta.
     if ($esperado !== '' && $recebido !== '' && hash_equals($esperado, $recebido)) {
-        return;   // válido
+        return;   // token válido — caminho normal
+    }
+
+    /* ── Segunda via: metadados de fetch do navegador ────────────────────────
+     * Dez telas do sistema disparam requisições já no carregamento, antes de o
+     * script que anexa o token existir — ele é acrescentado ao FIM do
+     * documento. Exigir só o token derrubava essas telas.
+     *
+     * Sec-Fetch-Site é definido pelo próprio navegador e está na lista de
+     * cabeçalhos proibidos: JavaScript não consegue alterá-lo. Numa requisição
+     * disparada por outro site, o navegador envia "cross-site"; na mesma
+     * origem, "same-origin". Isso dá a mesma garantia que o token para o caso
+     * que interessa, sem depender da ordem de carregamento dos scripts.
+     *
+     * Navegador antigo que não envie o cabeçalho cai na exigência do token.
+     */
+    $origem_fetch = strtolower(trim($_SERVER['HTTP_SEC_FETCH_SITE'] ?? ''));
+
+    if ($origem_fetch === 'same-origin') {
+        // Requisição da própria aplicação. Registra sem bloquear, para
+        // continuarmos vendo quais telas ainda não mandam o token.
+        if ($recebido === '') {
+            try {
+                require_once __DIR__ . '/dev_seguranca.php';
+                dev_registrar_ameaca([
+                    'tipo'         => 'CSRF_SUSPEITO',
+                    'severidade'   => 'BAIXA',
+                    'usuario_alvo' => (string)$_SESSION['usuario_logado'],
+                    'pagina'       => basename($_SERVER['PHP_SELF'] ?? '') . ':sem-token',
+                    'detalhe'      => 'POST sem token, aceito por Sec-Fetch-Site: same-origin. '
+                                    . 'Ação: ' . substr((string)($_POST['action'] ?? $_POST['acao'] ?? '—'), 0, 60),
+                ]);
+            } catch (Throwable $e) {}
+        }
+        return;
+    }
+
+    if ($origem_fetch !== '' && $origem_fetch !== 'same-origin') {
+        // O navegador afirma que a requisição veio de fora. Isso é CSRF.
+        $detalhe_ext = 'Requisição de outra origem (Sec-Fetch-Site: ' . $origem_fetch . ')';
     }
 
     // ── Falhou ──────────────────────────────────────────────────────────────
@@ -210,7 +264,8 @@ function seg_guardar(): void {
     $detalhe = 'POST sem token em ' . $pagina
              . ($acao !== '' ? ' → ação "' . $acao . '"' : ' (sem parâmetro de ação)')
              . ' | origem: ' . ($_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '(sem referência)')
-             . ' | ' . ($recebido === '' ? 'token ausente' : 'token diferente do da sessão');
+             . ' | ' . ($recebido === '' ? 'token ausente' : 'token diferente do da sessão')
+             . (isset($detalhe_ext) ? ' | ' . $detalhe_ext : '');
 
     try {
         require_once __DIR__ . '/dev_seguranca.php';
@@ -246,6 +301,63 @@ function seg_guardar(): void {
            . '<p>Esta ação não pôde ser validada. Isso acontece quando a página ficou aberta '
            . 'por muito tempo, ou quando o pedido não veio do sistema.</p>'
            . '<p><a href="javascript:history.back()" style="color:#60a5fa">Voltar</a></p></body>';
+    }
+    exit;
+}
+
+/**
+ * Barra requisição sem login.
+ *
+ * POR QUE ISTO EXISTE SEPARADO DE seg_guardar()
+ * seg_guardar() começa com `if (empty($_SESSION['usuario_logado'])) return;`
+ * e isso é deliberado: ela endurece a sessão de quem entrou (idade máxima,
+ * inatividade, CSRF), e páginas públicas de propósito — abertura de chamado
+ * por QR Code, login, index — precisam continuar funcionando.
+ *
+ * O efeito colateral é que ela NÃO autentica ninguém. Um endpoint que apenas
+ * inclui conexao.php e confia em seg_guardar() está aberto a requisição
+ * anônima. Quem exige login precisa dizer isso explicitamente, chamando esta
+ * função. Só o autor do endpoint sabe se ele é público ou não; o include não
+ * tem como adivinhar.
+ *
+ * Responde em JSON quando o chamador é AJAX, para o JavaScript da tela não
+ * tentar interpretar HTML como resposta.
+ */
+function seg_exigir_login(): void {
+    if (PHP_SAPI === 'cli') return;
+    if (session_status() === PHP_SESSION_NONE) @session_start();
+    if (!empty($_SESSION['usuario_logado'])) return;
+
+    // Registra: requisição anônima a endpoint fechado não acontece por acaso.
+    try {
+        require_once __DIR__ . '/dev_seguranca.php';
+        dev_registrar_ameaca([
+            'tipo'         => 'ACESSO_SEM_LOGIN',
+            'severidade'   => 'MEDIA',
+            'usuario_alvo' => '(anônimo)',
+            'pagina'       => basename($_SERVER['PHP_SELF'] ?? ''),
+            'detalhe'      => 'Requisição sem sessão a endpoint que exige login'
+                            . ' | método: ' . ($_SERVER['REQUEST_METHOD'] ?? '?')
+                            . ' | origem: ' . ($_SERVER['HTTP_REFERER'] ?? '(sem referência)'),
+        ]);
+    } catch (Throwable $e) {}
+
+    http_response_code(401);
+
+    $json = stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'json') !== false
+         || strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest'
+         || !empty($_POST['ajax']);
+
+    if ($json) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'sucesso'  => false,
+            'ok'       => false,
+            'expirado' => true,
+            'mensagem' => 'Sessão expirada. Entre novamente.'
+        ]);
+    } else {
+        header('Location: index.html?error=' . urlencode('Faça login para continuar.'));
     }
     exit;
 }

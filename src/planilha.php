@@ -146,6 +146,23 @@ td .cell-text{display:inline;outline:none;}
 td.fill-source{outline:2px solid #2563eb !important;outline-offset:-2px;background:#eff6ff !important;}
 td.fill-source .cell-text{display:inline-block;min-width:4px;vertical-align:middle;}
 td{position:relative;}
+
+/* ── Lista livre (combobox que aceita digitação) ──────────────────────────
+   Construída à mão porque o <datalist> nativo não abre sozinho: no Chrome as
+   sugestões só aparecem depois de o usuário começar a digitar, o que faz o
+   campo parecer uma caixa de texto comum. */
+.ll-wrap{position:relative;width:100%;}
+.ll-input{width:100%;font-size:13px;border:1px solid #6366f1;border-radius:4px;
+          background:#eef2ff;padding:2px 22px 2px 4px;font-family:inherit;outline:none;}
+.ll-seta{position:absolute;right:5px;top:50%;transform:translateY(-50%);
+         font-size:9px;color:#6366f1;pointer-events:none;}
+.ll-lista{position:absolute;left:0;top:100%;z-index:9999;min-width:100%;
+          max-height:190px;overflow-y:auto;background:#fff;border:1px solid #6366f1;
+          border-radius:0 0 6px 6px;box-shadow:0 6px 18px rgba(0,0,0,.18);
+          white-space:nowrap;}
+.ll-item{padding:6px 10px;font-size:13px;cursor:pointer;color:#111827;}
+.ll-item:hover,.ll-item.ll-ativo{background:#dbeafe;}
+.ll-vazio{padding:6px 10px;font-size:12px;color:#9ca3af;font-style:italic;}
 td .fill-handle{display:none;position:absolute;right:0;bottom:0;width:8px;height:8px;background:#2563eb;cursor:crosshair;z-index:10;user-select:none;pointer-events:none;}
 td[contenteditable="false"] .fill-handle,td.fill-source .fill-handle{pointer-events:auto;}
 td[contenteditable="true"] .fill-handle,td.fill-source .fill-handle{display:block;}
@@ -324,6 +341,21 @@ const COLUNAS_MOEDA = new Set(['valor_nota', 'valor_item']);
 const COLUNAS_DATA  = new Set(['data_movimentacao','data_inspecao','data_baixa','data_aquisicao','data_inicio_depreciacao']);
 
 /* colunas com combobox — duplo clique abre select em vez de edição livre */
+/* Colunas de LISTA LIVRE: abrem as opções sugeridas, mas aceitam qualquer
+   texto digitado. Usa <input list> + <datalist>, que dá as duas coisas de
+   forma nativa — sem precisar montar um menu à mão nem tratar teclado.
+   Diferente de COLUNAS_COMBOBOX, que é lista fechada. */
+const COLUNAS_LISTA_LIVRE = {
+    // Em caixa alta para acompanhar o padrão da base: os registros existentes
+    // estão todos em maiúsculas, e valor em caixa mista destoaria na coluna.
+    'grupo': [
+        'EQUIPAMENTOS E MÁQUINAS DE APOIO',
+        'EQUIPAMENTO MEDICO HOSPITALAR',
+        'INFORMÁTICA E COMUNICAÇÃO',
+        'MÓVEIS E UTENSÍLIOS',
+    ],
+};
+
 const COLUNAS_COMBOBOX = {
     'conciliado': ['', 'SIM', 'NAO', 'PENDENTE', 'SEM NOTA FISCAL'],
     // Setor responsável pela manutenção do item. Lista fechada: é ela que
@@ -385,6 +417,12 @@ const btnDesfazer = document.getElementById('btnDesfazer');
    HELPERS CÉLULA
 ═══════════════════════════════ */
 function getCellValue(td) {
+    // Se a célula está com a lista aberta, o valor corrente está no editor,
+    // não no texto — que só é atualizado ao fechar. Sem isto, arrastar com a
+    // lista aberta copiaria o valor anterior.
+    const editor = td.querySelector('select, input[list]');
+    if (editor) return (editor.value || '').trim();
+
     const span = td.querySelector('.cell-text');
     return span ? span.textContent.trim() : '';
 }
@@ -459,11 +497,15 @@ function formatarData(data) {
     const [ano, mes, dia] = dt.split('-');
     return hr ? `${dia}-${mes}-${ano} ${hr}` : `${dia}-${mes}-${ano}`;
 }
+/* Converte dd-mm-aaaa para aaaa-mm-dd antes de ENVIAR AO SERVIDOR.
+   Não passa por esc(): escapar HTML aqui gravaria "&amp;" no banco em vez de
+   "&". O escape é para inserção no DOM; dado destinado ao banco vai cru, e a
+   proteção contra injeção é o prepared statement do lado do servidor. */
 function normalizarData(valor) {
     if (!valor) return '';
     const m = valor.match(/^(\d{2})-(\d{2})-(\d{4})(.*)$/);
     if (!m) return valor;
-    return `${esc(m[3])}-${esc(m[2])}-${esc(m[1])}${esc(m[4] || '')}`;
+    return `${m[3]}-${m[2]}-${m[1]}${m[4] || ''}`;
 }
 
 /* ═══════════════════════════════
@@ -662,6 +704,145 @@ function renderTabela(linhas) {
                 const restrita = colunasRestritas.includes(c);
                 if (!podeEditar || (restrita && !podeEditarRestritos)) return;
 
+                /* ── LISTA LIVRE: abre as opções e aceita texto qualquer ──
+                   Lista construída à mão, e não com <datalist>: o nativo só
+                   mostra as sugestões depois de o usuário começar a digitar,
+                   então o campo parecia uma caixa de texto comum. Aqui a lista
+                   abre junto com o campo. */
+                if (COLUNAS_LISTA_LIVRE[c] !== undefined) {
+                    if (td.querySelector('.ll-wrap')) return;   // evita abrir dois
+
+                    const opcoes     = COLUNAS_LISTA_LIVRE[c];
+                    const valorAtual = span.textContent.trim();
+
+                    const wrap = document.createElement('div');
+                    wrap.className = 'll-wrap';
+
+                    const inp = document.createElement('input');
+                    inp.type      = 'text';
+                    inp.className = 'll-input';
+                    inp.value     = valorAtual;
+                    inp.autocomplete = 'off';
+                    // Limite igual ao da coluna no banco; sem isso o texto
+                    // seria cortado na gravação, sem aviso na tela.
+                    if (COL_MAX[c]) inp.maxLength = COL_MAX[c];
+
+                    const seta = document.createElement('i');
+                    seta.className = 'fas fa-chevron-down ll-seta';
+
+                    const lista = document.createElement('div');
+                    lista.className = 'll-lista';
+
+                    wrap.appendChild(inp);
+                    wrap.appendChild(seta);
+                    wrap.appendChild(lista);
+
+                    // Mantém o punho de arraste ativo, para copiar para baixo
+                    td.classList.add('fill-source');
+                    fillSource = td;
+
+                    span.style.display = 'none';
+                    td.appendChild(wrap);
+
+                    let jaFechou = false;
+                    let indice   = -1;      // item destacado pelas setas
+                    let digitou  = false;   // o usuário já alterou o texto?
+
+                    const fechar = (salvar) => {
+                        if (jaFechou) return;
+                        jaFechou = true;
+
+                        const novoValor = salvar ? inp.value.trim() : valorAtual;
+                        if (wrap.parentNode) wrap.remove();
+                        span.style.display = '';
+                        span.textContent   = novoValor;
+
+                        const anterior = td.dataset.original ?? '';
+                        if (novoValor !== anterior) {
+                            historicoAlteracoes.push({ td, valorAnterior: anterior });
+                            td.dataset.original = novoValor;
+                            tr.classList.add('editada');
+                            linhasAlteradas.add(tr);
+                            atualizarBtnDesfazer();
+                        }
+                    };
+
+                    /* Monta a lista, filtrando pelo que já foi digitado.
+                       Comparação sem acento e sem caixa: digitar "movei" acha
+                       "Móveis e Utensílios". */
+                    const semAcento = (s) => s.normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+                    const desenhar = () => {
+                        // Ao abrir, mostra TODAS as opções — mesmo que a célula
+                        // já tenha um valor fora da lista, que é o caso da
+                        // maioria dos registros existentes. Filtrar pelo valor
+                        // atual fazia a lista abrir vazia e parecer travada.
+                        const termo = digitou ? semAcento(inp.value.trim()) : '';
+                        const vis = termo === ''
+                            ? opcoes
+                            : opcoes.filter(o => semAcento(o).includes(termo));
+
+                        lista.innerHTML = '';
+                        indice = -1;
+
+                        if (!vis.length) {
+                            const v = document.createElement('div');
+                            v.className   = 'll-vazio';
+                            v.textContent = 'Nenhuma sugestão — pode digitar livremente';
+                            lista.appendChild(v);
+                            return;
+                        }
+
+                        vis.forEach(op => {
+                            const it = document.createElement('div');
+                            it.className   = 'll-item';
+                            it.textContent = op;
+                            // mousedown, não click: o blur do campo dispara antes
+                            // do click e fecharia a lista antes da escolha.
+                            it.addEventListener('mousedown', e => {
+                                e.preventDefault();
+                                inp.value = op;
+                                fechar(true);
+                            });
+                            lista.appendChild(it);
+                        });
+                    };
+
+                    const destacar = (passo) => {
+                        const itens = lista.querySelectorAll('.ll-item');
+                        if (!itens.length) return;
+                        itens.forEach(i => i.classList.remove('ll-ativo'));
+                        indice += passo;
+                        if (indice < 0) indice = itens.length - 1;
+                        if (indice >= itens.length) indice = 0;
+                        itens[indice].classList.add('ll-ativo');
+                        itens[indice].scrollIntoView({ block: 'nearest' });
+                    };
+
+                    desenhar();
+                    inp.focus();
+                    inp.select();
+
+                    inp.addEventListener('input', () => { digitou = true; desenhar(); });
+                    inp.addEventListener('blur',  () => fechar(true));
+
+                    inp.addEventListener('keydown', e => {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); destacar(1);  return; }
+                        if (e.key === 'ArrowUp')   { e.preventDefault(); destacar(-1); return; }
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const ativo = lista.querySelector('.ll-item.ll-ativo');
+                            if (ativo) inp.value = ativo.textContent;   // usa o destacado
+                            fechar(true);                              // ou o que foi digitado
+                            return;
+                        }
+                        if (e.key === 'Escape') { e.preventDefault(); fechar(false); }
+                    });
+
+                    return;
+                }
+
                 /* ── COMBOBOX para colunas especiais ── */
                 if (COLUNAS_COMBOBOX[c] !== undefined) {
                     // evita abrir dois selects
@@ -669,6 +850,13 @@ function renderTabela(linhas) {
 
                     const opcoes   = COLUNAS_COMBOBOX[c];
                     const valorAtual = span.textContent.trim();
+
+                    // Habilita o punho de arraste também nas colunas de lista
+                    // fechada. Antes elas saíam da função antes de receber a
+                    // classe 'fill-source', e o punho nunca aparecia — o que
+                    // obrigava a abrir a lista célula por célula.
+                    td.classList.add('fill-source');
+                    fillSource = td;
 
                     const sel = document.createElement('select');
                     sel.style.cssText = 'width:100%;font-size:13px;border:1px solid #6366f1;border-radius:4px;background:#eef2ff;padding:2px 4px;cursor:pointer;';
@@ -685,9 +873,20 @@ function renderTabela(linhas) {
                     td.appendChild(sel);
                     sel.focus();
 
+                    // Guarda de execução única. A função está ligada a 'change',
+                    // 'blur' e Enter — escolher com o mouse dispara 'change' e
+                    // depois 'blur', e a segunda passagem tentava remover um
+                    // elemento que já havia saído do DOM, lançando NotFoundError.
+                    // O valor já era gravado antes disso, então o erro não
+                    // perdia dado; apenas poluía o console.
+                    let jaConfirmou = false;
+
                     const confirmar = () => {
+                        if (jaConfirmou) return;
+                        jaConfirmou = true;
+
                         const novoValor = sel.value;
-                        sel.remove();
+                        if (sel.parentNode) sel.remove();
                         span.style.display = '';
                         span.textContent   = novoValor;
                         td.dataset.original !== novoValor && (() => {
@@ -706,7 +905,13 @@ function renderTabela(linhas) {
                     sel.addEventListener('blur',   confirmar);
                     sel.addEventListener('keydown', e => {
                         if (e.key === 'Enter')  { e.preventDefault(); confirmar(); }
-                        if (e.key === 'Escape') { sel.remove(); span.style.display = ''; }
+                        if (e.key === 'Escape') {
+                            // Escape descarta: marca como concluído para o 'blur'
+                            // seguinte não gravar o valor que o usuário abandonou.
+                            jaConfirmou = true;
+                            if (sel.parentNode) sel.remove();
+                            span.style.display = '';
+                        }
                     });
                     return;
                 }
@@ -1129,40 +1334,119 @@ function salvar() {
     salvarLinhasNormais(false);
 }
 
+/*
+ * Quantas linhas seguem por requisição.
+ *
+ * Cada linha carrega 59 colunas. Com o preenchimento por arraste, é fácil
+ * marcar centenas de linhas de uma vez, e o envio único virava um POST de
+ * megabytes: numa queda de Wi-Fi no meio do caminho, a requisição morre sem
+ * resposta ("Failed to fetch") e TODO o trabalho volta para a estaca zero.
+ * Em lotes, uma falha custa no máximo o último lote.
+ */
+const LOTE_SALVAR = 100;
+
+/* Envia um lote. Tenta de novo uma vez se a conexão falhar (não se o
+   servidor recusar — recusa é resposta, e repetir não mudaria nada). */
+function enviarLote(linhas, jaRepetiu) {
+    return fetch('salvar_planilha.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ dados: linhas })
+    })
+    .then(r => r.text())
+    .then(txt => {
+        try {
+            return JSON.parse(txt);
+        } catch (e) {
+            console.error('planilha: resposta não-JSON ao salvar (' +
+                          linhas.length + ' linhas): ' + txt.slice(0, 300));
+            return { sucesso: false, mensagem: 'O servidor devolveu uma resposta inesperada.' };
+        }
+    })
+    .catch(err => {
+        if (!jaRepetiu) {
+            return new Promise(r => setTimeout(r, 1500))
+                   .then(() => enviarLote(linhas, true));
+        }
+        console.error('planilha: conexão perdida ao salvar ' + linhas.length +
+                      ' linhas (navegador ' + (navigator.onLine ? 'online' : 'offline') +
+                      '): ' + err.message);
+        return { sucesso: false, semConexao: true };
+    });
+}
+
 /* Save por linha (fluxo original). Retorna Promise. */
 function salvarLinhasNormais(silencioso) {
-    return new Promise((resolve) => {
-        if (linhasAlteradas.size === 0) { resolve(); return; }
+    if (linhasAlteradas.size === 0) return Promise.resolve();
 
-        const linhas = [];
-        linhasAlteradas.forEach(tr => {
-            const row = [tr.dataset.id];
-            const tds = tr.querySelectorAll('td');
-            for (let i = 1; i < tds.length; i++) {
-                const td = tds[i];
-                if (td.dataset.ehMoeda === '1') {
-                    row.push(td.dataset.original ?? '');
-                } else {
-                    row.push(normalizarData(getCellValue(td)));
-                }
+    /* Guarda o <tr> junto do payload: sem isso não dá para saber quais linhas
+       foram efetivamente salvas quando um lote falha no meio. */
+    const pendentes = [];
+    linhasAlteradas.forEach(tr => {
+        const row = [tr.dataset.id];
+        const tds = tr.querySelectorAll('td');
+        for (let i = 1; i < tds.length; i++) {
+            const td = tds[i];
+            if (td.dataset.ehMoeda === '1') {
+                row.push(td.dataset.original ?? '');
+            } else {
+                row.push(normalizarData(getCellValue(td)));
             }
-            linhas.push(row);
+        }
+        pendentes.push({ tr: tr, row: row });
+    });
+
+    const lotes = [];
+    for (let i = 0; i < pendentes.length; i += LOTE_SALVAR) {
+        lotes.push(pendentes.slice(i, i + LOTE_SALVAR));
+    }
+
+    let salvas = 0;
+
+    /* Sequencial, não em paralelo: são UPDATEs na mesma tabela e a hospedagem
+       é compartilhada — disparar tudo de uma vez atrapalharia os outros. */
+    const percorrer = (indice) => {
+        if (indice >= lotes.length) return Promise.resolve(null);
+
+        return enviarLote(lotes[indice].map(p => p.row), false).then(j => {
+            if (!j.sucesso) return j;
+            lotes[indice].forEach(p => linhasAlteradas.delete(p.tr));
+            salvas += lotes[indice].length;
+            return percorrer(indice + 1);
         });
-        fetch('salvar_planilha.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dados: linhas })
-        })
-        .then(r => r.text())
-        .then(txt => {
-            const j = JSON.parse(txt);
-            if (!silencioso) alert(j.mensagem || j.erro_fatal || 'Resposta recebida');
-            linhasAlteradas.clear();
-            historicoAlteracoes = [];
-            atualizarBtnDesfazer();
-            resolve();
-        })
-        .catch(e => { console.error(e); alert('Erro crítico. Veja o console.'); resolve(); });
+    };
+
+    return percorrer(0).then(falha => {
+        historicoAlteracoes = [];
+        atualizarBtnDesfazer();
+
+        if (!falha) {
+            if (!silencioso) {
+                alert(salvas === 1 ? '1 item salvo com sucesso.'
+                                   : salvas + ' itens salvos com sucesso.');
+            }
+            return;
+        }
+
+        /* Houve falha. As linhas não salvas continuam marcadas: basta clicar
+           em Salvar de novo, nada foi perdido. Isso precisa estar na mensagem
+           — o usuário não tem como adivinhar. */
+        const restantes = linhasAlteradas.size;
+        let msg;
+
+        if (falha.semConexao) {
+            msg = 'A conexão caiu durante o salvamento.\n\n';
+        } else {
+            msg = (falha.mensagem || falha.erro_fatal || 'O salvamento foi interrompido.') + '\n\n';
+        }
+
+        if (salvas > 0) msg += salvas + ' ' + (salvas === 1 ? 'item já foi salvo' : 'itens já foram salvos') + '.\n';
+        msg += restantes + ' ' + (restantes === 1 ? 'item continua' : 'itens continuam') +
+               ' com alterações pendentes.\n\n' +
+               'Suas edições NÃO foram perdidas. Clique em Salvar novamente.';
+
+        alert(msg);
     });
 }
 

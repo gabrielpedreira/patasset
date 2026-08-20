@@ -3,6 +3,7 @@ session_start();
 require_once 'eng_clin_menu.php';
 $ENG_CLIN_PAGINA = '';   // item ativo no menu lateral
 include 'conexao.php';
+require_once __DIR__ . '/upload_seguro.php';
 
 if (!isset($_SESSION['usuario_logado'])) {
     header("Location: index.html");
@@ -122,14 +123,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     $foto = null;
     if (!empty($_FILES['foto']['tmp_name']) && $_FILES['foto']['error'] === UPLOAD_ERR_OK) {
-        $ext  = strtolower(pathinfo($_FILES['foto']['name'], PATHINFO_EXTENSION));
-        $perm = ['jpg','jpeg','png','webp','gif','bmp','tiff','tif','heic','heif','avif'];
-        $max  = 10 * 1024 * 1024;
 
-        if (in_array($ext, $perm) && $_FILES['foto']['size'] <= $max) {
+        /* Antes a validação era pela extensão do nome do arquivo — texto
+           escolhido por quem envia. Renomear qualquer coisa para ".jpg"
+           passava. Agora o tipo vem dos bytes; ver upload_seguro.php.
+           PDF fica de fora: foto de técnico é imagem. */
+        $mimeFoto = up_mime_real($_FILES['foto'], UP_MIME_IMAGEM, 10 * 1024 * 1024);
+
+        if ($mimeFoto !== false) {
             $binario = file_get_contents($_FILES['foto']['tmp_name']);
 
-            if (in_array($ext, ['heic','heif'])) {
+            if (in_array($mimeFoto, ['image/heic','image/heif'], true)) {
                 if (class_exists('Imagick')) {
                     try {
                         $img = new Imagick();
@@ -372,7 +376,7 @@ body{font-family:var(--font-ui);background:var(--bg-page);color:var(--text-prima
       <span>Cadastro de Técnico</span>
     </div>
     <div class="topbar-spacer"></div>
-    <img src="logo_rede.png" alt="Rede Hospitalar" class="topbar-logo-rede">
+    <img src="logoredecasa.png" alt="Rede Casa" class="topbar-logo-rede">
       <?php eng_clin_menu_botoes(); ?>
   </header>
 

@@ -38,39 +38,43 @@ if (empty($blob)) {
     exit();
 }
 
-// Fallback de mime_type para registros antigos sem coluna mime_type
-if (empty($mime_type)) {
-    // Detecta pelos primeiros bytes (magic bytes)
-    $header = substr($blob, 0, 8);
-    if (substr($blob, 0, 4) === '%PDF') {
-        $mime_type = 'application/pdf';
-    } elseif (substr($header, 0, 3) === "\xFF\xD8\xFF") {
-        $mime_type = 'image/jpeg';
-    } elseif (substr($header, 0, 8) === "\x89PNG\r\n\x1a\n") {
-        $mime_type = 'image/png';
-    } elseif (substr($header, 0, 6) === 'GIF87a' || substr($header, 0, 6) === 'GIF89a') {
-        $mime_type = 'image/gif';
-    } else {
-        $mime_type = 'application/octet-stream';
-    }
-}
+/*
+ * O Content-Type sai de uma lista fixa, decidida pelos bytes do arquivo.
+ *
+ * Antes, o valor da coluna `mime_type` ia direto para o cabeçalho. E aquele
+ * valor era o Content-Type declarado por quem enviou o arquivo, guardado sem
+ * conferência: bastava enviar um arquivo com script dentro declarando
+ * "text/html" para esta página devolvê-lo como HTML, e o navegador executava o
+ * script na origem do sistema, com a sessão de quem abriu o documento.
+ *
+ * `nosniff` não cobria isso — ele impede o navegador de adivinhar um tipo
+ * diferente do declarado, e o tipo declarado era o problema.
+ *
+ * Ver upload_seguro.php.
+ */
+require_once __DIR__ . '/upload_seguro.php';
 
-// Define extensão para download inline
-$extensoes = [
-    'application/pdf' => 'pdf',
-    'image/png'       => 'png',
-    'image/jpeg'      => 'jpg',
-    'image/jpg'       => 'jpg',
-    'image/gif'       => 'gif',
-    'image/webp'      => 'webp',
-];
-$ext = $extensoes[$mime_type] ?? 'bin';
+list($mime_type, $ext, $inline) = up_mime_saida($mime_type, $blob);
+
+// Anexo antigo de tipo desconhecido vai como download, nunca renderizado.
+$disposicao = $inline ? 'inline' : 'attachment';
 
 header('Content-Type: ' . $mime_type);
-header('Content-Disposition: inline; filename="documento_' . $id . '.' . $ext . '"');
+header('Content-Disposition: ' . $disposicao . '; filename="documento_' . $id . '.' . $ext . '"');
 header('Content-Length: ' . strlen($blob));
 header('Cache-Control: private, max-age=3600');
 header('X-Content-Type-Options: nosniff');
+
+/*
+ * Sem Content-Security-Policy aqui, de propósito. `sandbox` impediria o
+ * visualizador de PDF nativo do Chrome de abrir o arquivo, e conferir nota
+ * fiscal é justamente o que esta tela faz.
+ *
+ * A lista fixa de tipos já resolve: o cabeçalho só pode assumir um de dez
+ * valores conhecidos, e nem `text/html` nem `image/svg+xml` estão entre eles.
+ * SVG está fora por ser um formato de imagem que carrega script — parece
+ * inofensivo na lista e não é.
+ */
 
 echo $blob;
 exit();

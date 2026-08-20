@@ -10,6 +10,20 @@ require_once "conexao.php";
 
 header("Content-Type: application/json; charset=UTF-8");
 
+/*
+ * Exige login.
+ *
+ * Sem esta linha o arquivo era um retransmissor aberto: qualquer POST anônimo
+ * disparava e-mail pelo SMTP do hospital, com o remetente do hospital e
+ * conteúdo escolhido por quem chamou. Serve para phishing em nome da
+ * instituição e queima a reputação do domínio em listas de bloqueio.
+ *
+ * Incluir conexao.php não bastava: seg_guardar() sai na primeira linha quando
+ * não há sessão, porque existem páginas públicas de propósito. Ver o comentário
+ * de seg_exigir_login() em seguranca_sessao.php.
+ */
+seg_exigir_login();
+
 /* ===============================
    DADOS RECEBIDOS
 ================================ */
@@ -130,14 +144,14 @@ $cabecalho = "
     <h2 style='margin:0;color:#ffffff;font-size:20px;letter-spacing:1px;'>
       🏥 Sistema Patrimonial — PatAsset
     </h2>
-    <p style='margin:6px 0 0;color:#bfdbfe;font-size:13px;'>Rede Hospitalar</p>
+    <p style='margin:6px 0 0;color:#bfdbfe;font-size:13px;'>Rede Hospital Casa</p>
   </td>
 </tr>";
 
 $rodape = "
 <tr>
   <td style='background:#f9fafb;padding:16px 30px;text-align:center;border-top:1px solid #e5e7eb;'>
-    <p style='margin:0;font-size:12px;color:#9ca3af;'>Equipe Patrimônio · Rede Hospitalar</p>
+    <p style='margin:0;font-size:12px;color:#9ca3af;'>Equipe Patrimônio · Rede Hospital Casa</p>
   </td>
 </tr>";
 

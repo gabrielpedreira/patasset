@@ -157,6 +157,15 @@ function responsavel_canonico(string $v) {
     return false;
 }
 
+/*
+ * Transação: sem ela, um lote de 400 linhas que falhasse na linha 300 deixava
+ * 299 gravadas e avisava ao usuário que nada tinha sido salvo. Ele reeditava
+ * tudo sem saber que metade já estava no banco. Agora ou grava o lote inteiro
+ * ou não grava nada.
+ */
+$conn->begin_transaction();
+$gravadas = 0;
+
 foreach ($dados as $linha) {
 
     if (!isset($linha[0]) || !$linha[0]) continue;
@@ -186,10 +195,12 @@ foreach ($dados as $linha) {
         if ($def['campo'] === 'responsavel' && $valor !== null) {
             $canon = responsavel_canonico((string)$valor);
             if ($canon === false) {
+                $conn->rollback();
                 echo json_encode([
                     'sucesso'  => false,
                     'mensagem' => "Responsável inválido no ID $id: \"$valor\". "
-                                . "Valores aceitos: " . implode(', ', RESPONSAVEIS_VALIDOS) . ".",
+                                . "Nada foi salvo. Valores aceitos: "
+                                . implode(', ', RESPONSAVEIS_VALIDOS) . ".",
                     'id'       => $id,
                 ]);
                 exit;
@@ -208,22 +219,36 @@ foreach ($dados as $linha) {
 
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
-        echo json_encode(['sucesso'=>false,'mensagem'=>'Prepare falhou: '.$conn->error]);
+        $conn->rollback();
+        echo json_encode(['sucesso'=>false,'mensagem'=>'Não foi possível preparar a gravação. Nada foi salvo.']);
         exit;
     }
 
     $stmt->bind_param($types, ...$vals);
 
     if (!$stmt->execute()) {
-        echo json_encode(['sucesso'=>false,'mensagem'=>'Execute falhou: '.$stmt->error, 'id'=>$id]);
+        $conn->rollback();
         $stmt->close();
+        echo json_encode(['sucesso'=>false,'mensagem'=>"Falha ao gravar o item $id. Nada foi salvo.", 'id'=>$id]);
         exit;
     }
 
     $stmt->close();
+    $gravadas++;
+}
+
+if (!$conn->commit()) {
+    $conn->rollback();
+    echo json_encode(['sucesso'=>false,'mensagem'=>'Falha ao confirmar a gravação. Nada foi salvo.']);
+    exit;
 }
 
 $conn->close();
 
-echo json_encode(['sucesso'=>true,'mensagem'=>'Dados salvos com sucesso']);
+echo json_encode([
+    'sucesso'  => true,
+    'mensagem' => $gravadas === 1 ? '1 item salvo com sucesso'
+                                  : "$gravadas itens salvos com sucesso",
+    'gravadas' => $gravadas
+]);
 exit;
