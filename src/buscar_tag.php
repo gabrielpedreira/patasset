@@ -8,6 +8,10 @@ if (!isset($_SESSION['usuario_logado'])) {
 include 'conexao.php';
 header('Content-Type: application/json');
 
+// Busca por tag: usada nas telas de baixa e movimentação (nível A/B). Mesma
+// regra, agora conferida no servidor. Ver seg_exigir_permissao().
+seg_exigir_permissao($conn, ['A', 'B'], ['DEV', 'PATRIMONIO']);
+
 $tag = strtoupper(trim($_GET['tag'] ?? ''));
 
 if (empty($tag)) {

@@ -12,6 +12,10 @@ if (!isset($_SESSION['usuario_logado'])) {
     exit();
 }
 
+// Consulta de inventário da tela inicial: A, B ou C, só classe dona do
+// patrimônio (a própria inicial.php já se restringe a DEV/PATRIMONIO).
+seg_exigir_permissao($conn, ['A', 'B', 'C'], ['DEV', 'PATRIMONIO']);
+
 $acao = $_GET['acao'] ?? '';
 
 // ── Lista de unidades distintas ───────────────────────────────────────────────

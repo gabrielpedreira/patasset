@@ -13,6 +13,12 @@ if (!$usuario) {
     exit();
 }
 
+// Movimentar item exige A ou B + classe dona do patrimônio (mesma regra de
+// movimentar.php). A tela desabilita o botão para C; o endpoint não conferia
+// nada além do login. Ver seg_exigir_permissao().
+ob_clean();
+seg_exigir_permissao($conn, ['A', 'B'], ['DEV', 'PATRIMONIO']);
+
 /* ===============================
    DADOS RECEBIDOS
 ================================ */

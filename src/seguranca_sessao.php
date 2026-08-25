@@ -362,6 +362,98 @@ function seg_exigir_login(): void {
     exit;
 }
 
+/**
+ * Exige permissão E classe, conferidas no servidor.
+ *
+ * POR QUE ISTO EXISTE
+ * O controle de acesso do sistema estava só nas páginas: `planilha.php`
+ * desabilitava o botão Salvar para o nível C, `dash.php` redirecionava quem
+ * não fosse A, e assim por diante. Mas o botão desabilitado é só no navegador.
+ * Os endpoints por trás — `salvar_planilha.php`, `movimentar_action.php`,
+ * `indicadores_dados.php` — conferiam apenas se havia login, não o nível nem a
+ * classe. Um usuário C, vendo a planilha em modo leitura, conseguia editar
+ * chamando o endpoint direto; um usuário de ENGENHARIA CLINICA conseguia ler
+ * dados de patrimônio que a tela nunca ofereceria a ele.
+ *
+ * Autorização é decisão do servidor. A tela apenas reflete o que o servidor já
+ * decidiu — esconder o botão é cortesia com o usuário, não proteção.
+ *
+ * Esta função repete, num só lugar, a regra que as páginas já aplicam: carrega
+ * permissão, classe e status do banco (nunca da sessão, que não é reconsultada
+ * quando um admin altera o usuário) e barra quem não atende.
+ *
+ * @param mysqli $conn   Conexão já aberta.
+ * @param array  $niveis Permissões aceitas, ex.: ['A','B'].
+ * @param array  $classes Classes aceitas. Padrão: os donos do patrimônio.
+ * @param bool   $json   true responde JSON (endpoint AJAX); false redireciona
+ *                       (página ou download).
+ * @return array{permicao:string,classe_usuario:string} Dados do usuário atual.
+ */
+function seg_exigir_permissao(
+    mysqli $conn,
+    array $niveis,
+    array $classes = ['DEV', 'PATRIMONIO'],
+    bool $json = true
+): array {
+    seg_exigir_login();   // sem sessão nem chega aqui
+
+    $usuario = (string)($_SESSION['usuario_logado'] ?? '');
+
+    $permicao = '';
+    $classe   = '';
+    $status   = 'ATIVO';
+
+    $stmt = $conn->prepare("SELECT permicao, classe_usuario, status FROM usuarios WHERE usuario = ?");
+    if ($stmt) {
+        $stmt->bind_param('s', $usuario);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        if ($row = $res->fetch_assoc()) {
+            $permicao = (string)($row['permicao'] ?? '');
+            $classe   = (string)($row['classe_usuario'] ?? '');
+            $status   = (string)($row['status'] ?? 'ATIVO');
+        }
+        $stmt->close();
+    }
+
+    // Conta desativada enquanto a sessão seguia aberta: encerra na hora.
+    if ($status !== 'ATIVO') {
+        seg_encerrar('Sua conta foi desativada. Entre novamente.');
+    }
+
+    if (in_array($permicao, $niveis, true) && in_array($classe, $classes, true)) {
+        return ['permicao' => $permicao, 'classe_usuario' => $classe];
+    }
+
+    // Registra: acesso a ação acima do nível não acontece por acaso — é o
+    // usuário chamando o endpoint direto, contornando o que a tela esconde.
+    try {
+        require_once __DIR__ . '/dev_seguranca.php';
+        dev_registrar_ameaca([
+            'tipo'         => 'ACESSO_SEM_PERMISSAO',
+            'severidade'   => 'MEDIA',
+            'usuario_alvo' => $usuario !== '' ? $usuario : '(desconhecido)',
+            'pagina'       => basename($_SERVER['PHP_SELF'] ?? ''),
+            'detalhe'      => 'Permissão/classe insuficiente. '
+                            . 'Tem: ' . ($permicao !== '' ? $permicao : '—') . '/' . ($classe !== '' ? $classe : '—')
+                            . ' | Exige: ' . implode('|', $niveis) . ' + ' . implode('|', $classes),
+        ]);
+    } catch (Throwable $e) {}
+
+    http_response_code(403);
+    if ($json) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'sucesso'  => false,
+            'ok'       => false,
+            'mensagem' => 'Você não tem permissão para esta ação.'
+        ]);
+    } else {
+        header('Location: acesso_bloqueado.html');
+    }
+    exit;
+}
+
 /** Encerra a sessão e devolve o usuário ao login */
 function seg_encerrar(string $motivo): void {
     $json = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest';

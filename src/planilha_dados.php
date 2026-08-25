@@ -7,6 +7,11 @@ if (!isset($_SESSION['usuario_logado'])) {
 
 require_once "conexao.php";
 
+// Dados da planilha: visível a A, B e C (mesma regra de planilha.php), mas só
+// para a classe dona do patrimônio. Sem isto, outra classe lia o inventário
+// por este endpoint. Ver seg_exigir_permissao().
+seg_exigir_permissao($conn, ['A', 'B', 'C'], ['DEV', 'PATRIMONIO']);
+
 header('Content-Type: application/json; charset=utf-8');
 
 $pagina    = max(1, intval($_GET['pagina']    ?? 1));

@@ -13,6 +13,14 @@ require_once __DIR__ . "/vendor/autoload.php";
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
+/*
+ * Exportar é ler a planilha inteira num arquivo. Vale a mesma regra da tela:
+ * A, B ou C, só a classe dona do patrimônio. Antes, qualquer logado — inclusive
+ * outra classe — baixava o inventário completo por este endpoint.
+ * json=false: em caso de recusa, redireciona (isto devolve um arquivo, não JSON).
+ */
+seg_exigir_permissao($conn, ['A', 'B', 'C'], ['DEV', 'PATRIMONIO'], false);
+
 /* ===============================
    CONSULTA
 ================================ */

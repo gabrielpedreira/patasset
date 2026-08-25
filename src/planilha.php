@@ -1482,20 +1482,41 @@ function excluirLinha() {
 
     /* confirmação padrão ou reforçada se conciliado */
     if (estaConciliado) {
-        if (!confirm('⚠️ Este item está conciliado. Deseja excluir mesmo assim?')) return;
+        if (!confirm('⚠️ Deseja excluir um item conciliado?')) return;
     } else {
         if (!confirm('Deseja excluir este dado do banco?')) return;
     }
 
+    /* confirmado_conciliado avisa o servidor que o usuário já viu e aceitou o
+       alerta. O servidor confere no banco se o item é conciliado; se for e este
+       sinal não vier, ele recusa. Assim a confirmação vale mesmo que a tela
+       esteja desatualizada ou que a exclusão seja disparada por outro caminho. */
     const id = linhaSelecionada.dataset.id;
+    enviarExclusao(id, estaConciliado);
+}
+
+/* Envia a exclusão. Se o servidor responder que o item é conciliado e a
+   confirmação não veio (tela desatualizada, por exemplo), pergunta e reenvia
+   uma vez com o aceite. */
+function enviarExclusao(id, jaConfirmou) {
     fetch('excluir_linha.php', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
+        body: JSON.stringify({ id, confirmado_conciliado: jaConfirmou })
     })
     .then(r => r.json())
     .then(j => {
-        if (j.sucesso) { alert('Registro excluído com sucesso'); linhaSelecionada.remove(); linhaSelecionada = null; }
-        else alert('Erro: ' + j.mensagem);
+        if (j.sucesso) {
+            alert('Registro excluído com sucesso');
+            if (linhaSelecionada) { linhaSelecionada.remove(); linhaSelecionada = null; }
+            return;
+        }
+        if (j.exige_confirmar) {
+            if (confirm('⚠️ ' + (j.mensagem || 'Deseja excluir um item conciliado?'))) {
+                enviarExclusao(id, true);
+            }
+            return;
+        }
+        alert('Erro: ' + (j.mensagem || 'Falha ao excluir'));
     });
 }
 

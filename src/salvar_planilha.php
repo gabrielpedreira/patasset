@@ -32,6 +32,16 @@ if (!isset($_SESSION['usuario_logado'])) {
 
 require_once __DIR__ . '/conexao.php';
 
+/*
+ * Editar a planilha exige nível A ou B e classe dona do patrimônio. A tela
+ * já desabilita o botão Salvar para o nível C — mas isso é só no navegador.
+ * Sem esta linha, um usuário C (visualizador) editava registros chamando
+ * este endpoint direto, e um usuário de outra classe (ex.: ENGENHARIA
+ * CLINICA) alterava dados de patrimônio que a tela nunca lhe ofereceria.
+ * Mesma regra de planilha.php. Ver seg_exigir_permissao().
+ */
+seg_exigir_permissao($conn, ['A', 'B'], ['DEV', 'PATRIMONIO']);
+
 $raw = file_get_contents("php://input");
 
 if (!$raw) {

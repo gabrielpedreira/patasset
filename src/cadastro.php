@@ -216,8 +216,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['acao'] ?? '') === 'salvar'
             descricao_detalhada, descricao, marca, modelo,
             serie, observacao, nota_fiscal,
             usuario_cadastro,
-            grupo, classe, subgrupo, responsavel, conciliado
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            grupo, classe, subgrupo, responsavel, conciliado,
+            encontrado
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'SIM')";
+        /* encontrado='SIM': todo item recém-cadastrado nasce localizado — ele
+           acabou de ser visto e registrado. Vira 'NAO' só quando uma auditoria
+           não o encontra. Valor fixo, por isso literal e não bind. */
 
         $stmt = $conn->prepare($sql);
         if ($stmt === false) {
@@ -237,8 +241,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['acao'] ?? '') === 'salvar'
             descricao_detalhada, descricao, marca, modelo,
             serie, observacao, nota_fiscal,
             usuario_cadastro,
-            grupo, classe, subgrupo, responsavel
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            grupo, classe, subgrupo, responsavel,
+            encontrado
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'SIM')";
+        /* encontrado='SIM': item recém-cadastrado nasce localizado (ver ramo
+           acima). Literal, pois é valor fixo. */
 
         $stmt = $conn->prepare($sql);
         if ($stmt === false) {

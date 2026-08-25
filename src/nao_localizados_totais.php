@@ -7,6 +7,9 @@ if (!isset($_SESSION['usuario_logado'])) {
 }
 include 'conexao.php';
 
+// Mesma porta da página nao_localizados.php: A ou B + classe do patrimônio.
+seg_exigir_permissao($conn, ['A', 'B'], ['DEV', 'PATRIMONIO']);
+
 $unidade = $_GET['unidade'] ?? '';
 $setor   = $_GET['setor']   ?? '';
 

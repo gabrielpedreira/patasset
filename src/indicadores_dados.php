@@ -3,6 +3,11 @@ session_start();
 header('Content-Type: application/json');
 if (!isset($_SESSION['usuario_logado'])) { echo json_encode(['erro'=>'nao autenticado']); exit(); }
 require_once "conexao.php";
+
+// Dados por trás do dashboard de indicadores: mesma regra da página (nível A +
+// classe do patrimônio). Antes, qualquer logado obtinha os números por aqui.
+seg_exigir_permissao($conn, ['A'], ['DEV', 'PATRIMONIO']);
+
 require_once "indicadores_localizacao.php";
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -57,6 +62,10 @@ function colMap(string $d): string {
         'descricao'  => 'TRIM(descricao)',
         'mes'        => "DATE_FORMAT(data_movimentacao,'%Y-%m')",
         'status'     => 'UPPER(TRIM(status))',
+        // Localização: reduz a coluna `encontrado` a dois baldes com rótulo
+        // pronto. Vazio/NULL cai em "Não Localizado" — item sem marcação de
+        // auditoria conta como não localizado, que é o comportamento seguro.
+        'localizado' => "CASE WHEN UPPER(TRIM(encontrado))='SIM' THEN 'Localizado' ELSE 'Não Localizado' END",
         default      => 'TRIM(unidade)',
     };
 }
@@ -70,6 +79,7 @@ function dimLabel(string $d): string {
         'descricao'  => 'Tipo',
         'mes'        => 'Mês',
         'status'     => 'Status',
+        'localizado' => 'Localização',
         default      => 'Unidade',
     };
 }

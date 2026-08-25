@@ -44,6 +44,26 @@ O token é anexado automaticamente pela interceptação de `fetch`, `XMLHttpRequ
 
 **A implantação foi feita em duas etapas**, e isso importa: primeiro em modo observação, registrando violações sem bloquear. Foi o que revelou que a tela administrativa — a de maior valor para um atacante — era a única sem token, porque um `session_write_close()` no início do arquivo apagava a sessão antes de o token ser emitido. Ativar o bloqueio direto teria derrubado justamente essa tela, e a conclusão apressada seria "a proteção quebrou o sistema".
 
+### Autorização
+
+O sistema tem dois eixos independentes: **permissão** (A administrador, B
+operador, C visualizador) define o que a pessoa pode fazer; **classe** define a
+qual módulo ela pertence. As telas cruzam os dois — a planilha, por exemplo,
+só abre para a classe dona do patrimônio, e dentro dela o botão de excluir só
+aparece para A e B.
+
+O ponto que uma revisão por leitura de código pegou tarde: **esconder o botão
+não é autorizar**. O controle vivia só na renderização da página, e os
+endpoints por trás conferiam apenas se havia login. Um visualizador, vendo a
+planilha em modo leitura, editava registros chamando o endpoint direto; um
+usuário de outra classe lia dados de patrimônio que a tela nunca lhe ofereceria.
+
+A correção foi um verificador único no servidor (`seg_exigir_permissao`), que
+carrega permissão e classe do banco a cada requisição e é aplicado em todos os
+endpoints de escrita e de leitura de dados sensíveis. A tela continua
+escondendo o que o usuário não pode fazer — mas agora isso é conveniência, não
+a proteção. A proteção é a decisão que o servidor toma de novo em cada chamada.
+
 ### Injeção de SQL
 
 Prepared statements em todo o acesso a dados. Onde a parametrização não se aplica — nomes de coluna em `ORDER BY`, valores de `LIMIT` — o dado passa por lista branca ou conversão para inteiro com limites.
@@ -140,6 +160,6 @@ passar tudo o que não é execução de código.
 
 ## Notas sobre a revisão
 
-A avaliação de segurança foi feita por **leitura de código**, não por teste de invasão. Falhas de lógica de autorização — acessar dados de outra unidade manipulando um parâmetro, por exemplo — só aparecem em teste dinâmico e não foram verificadas.
+A avaliação de segurança foi feita por **leitura de código**, complementada por um teste dinâmico de controle de acesso: uma conta de visualizador tentando, pelo navegador, alcançar ações e endpoints acima do seu nível. Foi esse teste que confirmou que as travas de autorização passaram a valer no servidor. Falhas de lógica mais sutis — como acessar dados de outra unidade manipulando um identificador — não foram exercitadas de forma exaustiva e seguem como área a aprofundar.
 
 O sistema roda em hospedagem compartilhada, o que impõe limites fora do controle da aplicação: vizinhos no mesmo servidor, ausência de acesso administrativo e pouco controle sobre a configuração do PHP a longo prazo.

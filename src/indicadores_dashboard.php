@@ -3,6 +3,15 @@ session_start();
 if (!isset($_SESSION['usuario_logado'])) { header("Location: index.html"); exit(); }
 require_once 'check_session.php';
 require_once "conexao.php";
+
+/*
+ * Este dashboard é linkado apenas de relatorio.php e rel_conciliacao.php, que
+ * são exclusivos do nível A — mas a página em si só conferia login, então
+ * qualquer usuário logado a abria pela URL direta. Agora exige A + classe do
+ * patrimônio, igual às telas que dão acesso a ela. json=false: redireciona.
+ */
+seg_exigir_permissao($conn, ['A'], ['DEV', 'PATRIMONIO'], false);
+
 $resUni = $conn->query("SELECT DISTINCT TRIM(unidade) AS u FROM cadastro WHERE unidade IS NOT NULL AND TRIM(unidade)<>'' ORDER BY u ASC");
 $unidades = [];
 while ($r = $resUni->fetch_assoc()) $unidades[] = $r['u'];
@@ -353,6 +362,7 @@ body{font-family:Arial,sans-serif;background:linear-gradient(135deg,#001435,#60a
                 <label class="chk-label"><input type="checkbox" name="dimensao" value="ccu" onchange="syncChkStyle(this)"> Centro de Custo</label>
                 <label class="chk-label"><input type="checkbox" name="dimensao" value="destino" onchange="syncChkStyle(this)"> Unidade Destino</label>
                 <label class="chk-label"><input type="checkbox" name="dimensao" value="conciliado" onchange="syncChkStyle(this)"> Status Conciliação</label>
+                <label class="chk-label"><input type="checkbox" name="dimensao" value="localizado" onchange="syncChkStyle(this)"> Localização</label>
                 <label class="chk-label"><input type="checkbox" name="dimensao" value="status" onchange="syncChkStyle(this)"> Status do Item</label>
                 <label class="chk-label"><input type="checkbox" name="dimensao" value="subgrupo" onchange="syncChkStyle(this)"> Subgrupo</label>
                 <label class="chk-label"><input type="checkbox" name="dimensao" value="descricao" onchange="syncChkStyle(this)"> Tipo / Descrição</label>
@@ -422,6 +432,11 @@ body{font-family:Arial,sans-serif;background:linear-gradient(135deg,#001435,#60a
                         <div class="g-titulo">Cadastro vs. Movimentações</div>
                         <div class="g-desc">Comparativo lado a lado entre total cadastrado e itens movimentados por unidade.</div>
                         <div class="g-config">Colunas · Unidade · Ambas as fontes</div>
+                    </div>
+                    <div class="guia-card g-red" onclick="aplicarGuia('bar',['localizado'],['quantidade','valor'])">
+                        <div class="g-titulo">Localizados vs. Não Localizados</div>
+                        <div class="g-desc">Compara itens encontrados e não encontrados na auditoria, com a quantidade e o valor de cada grupo.</div>
+                        <div class="g-config">Colunas · Localização · Quantidade + Valor</div>
                     </div>
                 </div>
             </div>
@@ -618,7 +633,7 @@ function gerarGraficoLocalizacao() {
 document.addEventListener('DOMContentLoaded', carregarLocalizacao);
 
 /* ── Labels legíveis ── */
-const DIM_LABEL ={unidade:'Unidade',ccu:'Centro de Custo',destino:'Unidade Destino',conciliado:'Status Conciliação',status:'Status',subgrupo:'Subgrupo',descricao:'Tipo',mes:'Mês',localizacao:'Localizado × Nota Fiscal'};
+const DIM_LABEL ={unidade:'Unidade',ccu:'Centro de Custo',destino:'Unidade Destino',conciliado:'Status Conciliação',status:'Status',subgrupo:'Subgrupo',descricao:'Tipo',mes:'Mês',localizado:'Localização',localizacao:'Localizado × Nota Fiscal'};
 const MET_LABEL = {quantidade:'Quantidade',valor:'Valor R$',porcentagem:'Porcentagem'};
 const FONTE_LABEL = {conciliados:'Cadastro Geral',movimentacoes:'Movimentações',ambos:'Comparativo'};
 

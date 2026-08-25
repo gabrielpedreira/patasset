@@ -7,6 +7,10 @@ if (!isset($_SESSION['usuario_logado'])) {
 }
 include 'conexao.php';
 
+// Marcar item como localizado altera o cadastro: exige A ou B + classe dona
+// do patrimônio, igual à página nao_localizados.php. Ver seg_exigir_permissao().
+seg_exigir_permissao($conn, ['A', 'B'], ['DEV', 'PATRIMONIO']);
+
 $data=json_decode(file_get_contents("php://input"),true);
 $id=$data['id'] ?? 0;
 
